@@ -38,6 +38,7 @@ except ImportError:
 
 # --- SETUP & KONFIGURATION ---
 try:
+    # HINWEIS: 'initial_sidebar_state' ist nicht mehr nötig, da wir keine Sidebar verwenden
     st.set_page_config(layout="wide", page_title="Park 55 Immobilienrechner")
 except st.errors.StreamlitAPIException:
     pass
@@ -225,17 +226,9 @@ def set_custom_style():
           -moz-appearance: textfield;
         }}
         
-        /* Versteckt den '>>' (Sidebar-Einklappen) Knopf */
-        [data-testid="stSidebarCollapseButton"] {{
-            display: none;
-        }}
-        
         /* --- ENDE NEUE ÄNDERUNGEN --- */
-
-        /* Sidebar Styling */
-        [data-testid="stSidebar"] {{
-            background-color: {COLOR_LIGHT_BG};
-        }}
+        
+        /* HINWEIS: Sidebar-Styling wurde entfernt, da wir keine Sidebar mehr verwenden */
 
         /* Tabs Styling */
         .stTabs [data-baseweb="tab"][aria-selected="true"] {{
@@ -280,174 +273,161 @@ def set_custom_style():
         """, unsafe_allow_html=True)
 
 # ====================================================================================
-# INPUT WIDGETS (Sidebar)
+# INPUT WIDGETS (Hauptseite)
 # ====================================================================================
 
-# GEÄNDERT: Diese Funktion wurde stark überarbeitet, um st.slider und st.number_input 
-# gemäß den Anforderungen zu mischen und das Baubegleitungs-Feld zu entfernen.
-def display_sidebar_inputs():
+# GEÄNDERT: Funktion umbenannt und komplett überarbeitet.
+# Verwendet st.expander auf der Hauptseite statt der Sidebar.
+def display_main_page_inputs():
     """
-    Zeigt alle Input-Widgets in der Sidebar an.
+    Zeigt alle Input-Widgets in einem Expander auf der Hauptseite an.
     """
-    st.sidebar.header("Eingabedaten")
-
-    # --- 1. Objektdaten ---
-    st.sidebar.subheader("1. Objektdaten & GIK")
-    st.sidebar.text_input("Objektname / Beschreibung", key='objekt_name')
     
-    # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
-    st.sidebar.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
-
-    # GIK Aufteilung & Validierung (Prozentual)
-    st.sidebar.markdown("**Aufteilung GIK (für AfA-Berechnung):**")
-    col1, col2 = st.sidebar.columns(2)
-    # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
-    col1.number_input("Sanierungskostenanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_sanierungskostenanteil_pct')
-    col2.number_input("Grundstücksanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_grundstuecksanteil_pct')
-
-    # Validierungslogik
-    gik_is_valid, altbauanteil_pct, msg_type, msg = validate_gik_anteile(
-        st.session_state.input_sanierungskostenanteil_pct,
-        st.session_state.input_grundstuecksanteil_pct
-    )
-
-    if msg_type == "error":
-        st.sidebar.error(msg)
-    elif msg_type == "warning":
-        st.sidebar.warning(msg)
-
-    st.sidebar.number_input("Altbausubstanz (berechnet, %)", value=altbauanteil_pct, disabled=True, format="%.1f")
-
-    # Weitere Objektdaten
-    st.sidebar.markdown("**Flächen & Einheiten:**")
-    col_w1, col_w2 = st.sidebar.columns(2)
-    # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
-    col_w1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
-    col_w2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg')
-
-    col_k1, col_k2 = st.sidebar.columns(2)
-    # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
-    col_k1.number_input("Kellerfläche (m², optional)", min_value=0.0, step=1.0, key='input_kellerflaeche')
-    col_k2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
-
-
-    # --- 2. KfW-Förderung ---
-    st.sidebar.subheader("2. KfW-Förderung (Programm 261)")
-
-    # GEÄNDERT: Eingabefeld für Kosten Baubegleitung entfernt.
-    # Der Wert (3998) wird jetzt fix aus DEFAULTS verwendet.
-    
-    # Berechnung des Max-Limits (nur Basis)
-    anzahl_whg = int(st.session_state.get('input_anzahl_whg', 1))
-    max_kfw_darlehen_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
-
-    # Robustheits-Fix für den Basis-Input
-    current_kfw_value = st.session_state.get('input_kfw_darlehen_261_basis', DEFAULTS['input_kfw_darlehen_261_basis'])
-    
-    try:
-        current_kfw_value = float(current_kfw_value)
-        max_kfw_darlehen_basis = float(max_kfw_darlehen_basis)
-    except (ValueError, TypeError):
-        current_kfw_value = 0.0
-        max_kfw_darlehen_basis = 0.0
-
-    if current_kfw_value > max_kfw_darlehen_basis:
-        st.session_state.input_kfw_darlehen_261_basis = int(max_kfw_darlehen_basis)
-
-    # Widget rendern
-    # GEÄNDERT: Auf Wunsch zurück zu number_input (ohne Steppers via CSS)
-    st.sidebar.number_input(f"Darlehenssumme Basis (Max: {format_euro(int(max_kfw_darlehen_basis),0)})", min_value=0, max_value=int(max_kfw_darlehen_basis), step=1000, key='input_kfw_darlehen_261_basis')
-    
-    # Information über das Gesamtdarlehen (nutzt jetzt den fixen Wert)
-    kosten_bb_pro_we = float(st.session_state.get('kosten_baubegleitung_pro_we', 0))
-    kosten_baubegleitung_gesamt = kosten_bb_pro_we * anzahl_whg
-    kfw_gesamt = st.session_state.input_kfw_darlehen_261_basis + kosten_baubegleitung_gesamt
-    st.sidebar.info(f"Das gesamte KfW-Darlehen beträgt {format_euro(kfw_gesamt, 0)} (Basis + Baubegleitung).")
-
-    kfw_is_valid = True
-
-
-    # --- 3. Finanzierung (Bank) ---
-    st.sidebar.subheader("3. Finanzierung & Eigenkapital")
-    
-    # GEÄNDERT: von number_input zu slider, step=1.0, format="%.0f"
-    st.sidebar.slider("Eigenkapitalquote (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='ek_quote_pct')
-
-    st.sidebar.markdown("**Bankdarlehen:**")
-    col_z1, col_t1 = st.sidebar.columns(2)
-    # GEÄNDERT: von number_input zu slider (max_value auf 10% angenommen)
-    col_z1.slider("Zinssatz Bank (p.a. %)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='bank_zins_pct')
-    col_t1.slider("Tilgungsrate Bank (%)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
-
-    st.sidebar.markdown("**KfW-Darlehen (Konditionen):**")
-    # GEÄNDERT: von number_input zu slider (max_value auf 10% angenommen)
-    st.sidebar.slider("Zinssatz KfW (p.a. %)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='kfw_zins_pct')
-    col_lz, col_tf = st.sidebar.columns(2)
-    
-    # FIX: Dynamische Validierung (Tilgungsfrei muss < Gesamtlaufzeit sein)
-    gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
-    max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
-    
-    if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
-        st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
-
-    # GEÄNDERT: von number_input zu slider
-    col_lz.slider("Gesamtlaufzeit (Jahre)", min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
-    col_tf.slider("Tilgungsfreie Jahre", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
-
-
-    # --- 4. Steuerliche Daten ---
-    st.sidebar.subheader("4. Steuerliche Annahmen")
-    
-    st.sidebar.radio("Steuersatz-Ermittlung", STEUER_MODI, key='steuer_modus', horizontal=True)
-
-    if st.session_state.steuer_modus == STEUER_MODI[0]:
+    # GEÄNDERT: Label vereinfacht und expanded=True (Standard offen)
+    with st.expander("Eingabedaten", expanded=True):
+        # --- 1. Objektdaten ---
+        st.subheader("1. Objektdaten & GIK")
+        st.text_input("Objektname / Beschreibung", key='objekt_name')
+        
         # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
-        st.sidebar.number_input("Zu versteuerndes Einkommen (zvE)", min_value=0, step=10000, key='zve')
-        col_t, col_j = st.sidebar.columns([2, 1])
-        col_t.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
-        col_j.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, key='steuerjahr')
+        st.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
 
-    else: # Steuersatz
-        # GEÄNDERT: von number_input zu slider
-        st.sidebar.slider("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
+        # GIK Aufteilung & Validierung (Prozentual)
+        st.markdown("**Aufteilung GIK (für AfA-Berechnung):**")
+        col1, col2 = st.columns(2)
+        # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
+        col1.number_input("Sanierungskostenanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_sanierungskostenanteil_pct')
+        col2.number_input("Grundstücksanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_grundstuecksanteil_pct')
 
-    st.sidebar.selectbox("Kirchensteuer", list(KIRCHENSTEUER_MAP.keys()), key='kirchensteuer_option')
+        # Validierungslogik
+        gik_is_valid, altbauanteil_pct, msg_type, msg = validate_gik_anteile(
+            st.session_state.input_sanierungskostenanteil_pct,
+            st.session_state.input_grundstuecksanteil_pct
+        )
 
-    # --- 5. Berechnungsparameter ---
-    st.sidebar.subheader("5. Parameter & Prognose")
-    # GEÄNDERT: von number_input zu slider (max_value auf 40 angenommen)
-    st.sidebar.slider("Geplanter Verkauf nach (Jahren)", min_value=10, max_value=40, step=1, key='geplanter_verkauf')
+        if msg_type == "error":
+            st.error(msg)
+        elif msg_type == "warning":
+            st.warning(msg)
 
-    st.sidebar.markdown("**Mieten (Startwerte):**")
-    col_m1, col_m2 = st.sidebar.columns(2)
-    # GEÄNDERT: von number_input zu slider (max_value auf 30 angenommen)
-    col_m1.slider("Miete Wohnen (€/m²)", min_value=0.0, max_value=30.0, step=0.1, format="%.2f", key='miete_wohnen')
-    col_m2.slider("Miete Keller (€/m²)", min_value=0.0, max_value=15.0, step=0.1, format="%.2f", key='miete_keller')
-    # GEÄNDERT: von number_input zu slider (max_value auf 200 angenommen)
-    st.sidebar.slider("Miete Stellplatz (€/Stk.)", min_value=0.0, max_value=200.0, step=5.0, format="%.2f", key='miete_stellplatz')
+        st.number_input("Altbausubstanz (berechnet, %)", value=altbauanteil_pct, disabled=True, format="%.1f")
 
-    st.sidebar.markdown("**Entwicklung (p.a. %):**")
-    col_e1, col_e2 = st.sidebar.columns(2)
-    # GEÄNDERT: von number_input zu slider (max_value auf 10% angenommen)
-    col_e1.slider("Mietsteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='mietsteigerung_pa_pct')
-    col_e2.slider("Wertsteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='wertsteigerung_pa_pct')
-    
-    st.sidebar.markdown("**Kosten (Startwerte):**")
-    # GEÄNDERT: von number_input zu slider (max_value auf 100 angenommen)
-    st.sidebar.slider("Verwaltung (€/Whg./Monat)", min_value=0.0, max_value=100.0, step=1.0, format="%.2f", key='nk_pro_wohnung')
-    # GEÄNDERT: von number_input zu slider (max_value auf 10% angenommen)
-    st.sidebar.slider("Kostensteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='kostensteigerung_pa_pct')
+        # Weitere Objektdaten
+        st.markdown("**Flächen & Einheiten:**")
+        col_w1, col_w2 = st.columns(2)
+        # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
+        col_w1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
+        col_w2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg')
 
-    # GEÄNDERT: von number_input zu slider
-    st.sidebar.slider("Sicherheitsabschlag Miete (%)", min_value=0.0, max_value=50.0, step=0.1, format="%.1f", key='sicherheitsabschlag_pct')
+        col_k1, col_k2 = st.columns(2)
+        # WIE GEWÜNSCHT: st.number_input (ohne Steppers durch CSS)
+        col_k1.number_input("Kellerfläche (m², optional)", min_value=0.0, step=1.0, key='input_kellerflaeche')
+        col_k2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
 
-    st.sidebar.markdown("---")
-    
-    st.sidebar.caption("©TRAS Beratungs- und Beteiligungs GmbH – Urheberrechtlich geschützte Anwendung. Alle Rechte vorbehalten.")
+        st.markdown("---")
 
+        # --- 2. KfW-Förderung ---
+        st.subheader("2. KfW-Förderung (Programm 261)")
+        
+        # Berechnung des Max-Limits (nur Basis)
+        anzahl_whg = int(st.session_state.get('input_anzahl_whg', 1))
+        max_kfw_darlehen_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
+
+        # Robustheits-Fix für den Basis-Input
+        current_kfw_value = st.session_state.get('input_kfw_darlehen_261_basis', DEFAULTS['input_kfw_darlehen_261_basis'])
+        
+        try:
+            current_kfw_value = float(current_kfw_value)
+            max_kfw_darlehen_basis = float(max_kfw_darlehen_basis)
+        except (ValueError, TypeError):
+            current_kfw_value = 0.0
+            max_kfw_darlehen_basis = 0.0
+
+        if current_kfw_value > max_kfw_darlehen_basis:
+            st.session_state.input_kfw_darlehen_261_basis = int(max_kfw_darlehen_basis)
+
+        # Widget rendern
+        st.number_input(f"Darlehenssumme Basis (Max: {format_euro(int(max_kfw_darlehen_basis),0)})", min_value=0, max_value=int(max_kfw_darlehen_basis), step=1000, key='input_kfw_darlehen_261_basis')
+        
+        kosten_bb_pro_we = float(st.session_state.get('kosten_baubegleitung_pro_we', 0))
+        kosten_baubegleitung_gesamt = kosten_bb_pro_we * anzahl_whg
+        kfw_gesamt = st.session_state.input_kfw_darlehen_261_basis + kosten_baubegleitung_gesamt
+        st.info(f"Das gesamte KfW-Darlehen beträgt {format_euro(kfw_gesamt, 0)} (Basis + Baubegleitung).")
+
+        kfw_is_valid = True
+        
+        st.markdown("---")
+
+
+        # --- 3. Finanzierung (Bank) ---
+        st.subheader("3. Finanzierung & Eigenkapital")
+        
+        st.slider("Eigenkapitalquote (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='ek_quote_pct')
+
+        st.markdown("**Bankdarlehen:**")
+        col_z1, col_t1 = st.columns(2)
+        col_z1.slider("Zinssatz Bank (p.a. %)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='bank_zins_pct')
+        col_t1.slider("Tilgungsrate Bank (%)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
+
+        st.markdown("**KfW-Darlehen (Konditionen):**")
+        st.slider("Zinssatz KfW (p.a. %)", min_value=0.0, max_value=10.0, step=0.01, format="%.2f", key='kfw_zins_pct')
+        col_lz, col_tf = st.columns(2)
+        
+        gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
+        max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
+        
+        if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
+            st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
+
+        col_lz.slider("Gesamtlaufzeit (Jahre)", min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
+        col_tf.slider("Tilgungsfreie Jahre", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
+
+        st.markdown("---")
+
+        # --- 4. Steuerliche Daten ---
+        st.subheader("4. Steuerliche Annahmen")
+        
+        st.radio("Steuersatz-Ermittlung", STEUER_MODI, key='steuer_modus', horizontal=True)
+
+        if st.session_state.steuer_modus == STEUER_MODI[0]:
+            st.number_input("Zu versteuerndes Einkommen (zvE)", min_value=0, step=10000, key='zve')
+            col_t, col_j = st.columns([2, 1])
+            col_t.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
+            col_j.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, key='steuerjahr')
+
+        else: # Steuersatz
+            st.slider("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
+
+        st.selectbox("Kirchensteuer", list(KIRCHENSTEUER_MAP.keys()), key='kirchensteuer_option')
+
+        st.markdown("---")
+
+        # --- 5. Berechnungsparameter ---
+        st.subheader("5. Parameter & Prognose")
+        st.slider("Geplanter Verkauf nach (Jahren)", min_value=10, max_value=40, step=1, key='geplanter_verkauf')
+
+        st.markdown("**Mieten (Startwerte):**")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.slider("Miete Wohnen (€/m²)", min_value=0.0, max_value=30.0, step=0.1, format="%.2f", key='miete_wohnen')
+        col_m2.slider("Miete Keller (€/m²)", min_value=0.0, max_value=15.0, step=0.1, format="%.2f", key='miete_keller')
+        col_m3.slider("Miete Stellplatz (€/Stk.)", min_value=0.0, max_value=200.0, step=5.0, format="%.2f", key='miete_stellplatz')
+
+        st.markdown("**Entwicklung (p.a. %):**")
+        col_e1, col_e2, col_e3 = st.columns(3)
+        col_e1.slider("Mietsteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='mietsteigerung_pa_pct')
+        col_e2.slider("Wertsteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='wertsteigerung_pa_pct')
+        col_e3.slider("Kostensteigerung (%)", min_value=0.0, max_value=10.0, step=0.1, format="%.2f", key='kostensteigerung_pa_pct')
+
+        st.markdown("**Kosten (Startwerte):**")
+        col_k1, col_k2 = st.columns(2)
+        col_k1.slider("Verwaltung (€/Whg./Monat)", min_value=0.0, max_value=100.0, step=1.0, format="%.2f", key='nk_pro_wohnung')
+        col_k2.slider("Sicherheitsabschlag Miete (%)", min_value=0.0, max_value=50.0, step=0.1, format="%.1f", key='sicherheitsabschlag_pct')
+
+        st.markdown("---")
+        st.caption("©TRAS Beratungs- und Beteiligungs GmbH – Urheberrechtlich geschützte Anwendung. Alle Rechte vorbehalten.")
+        
     return gik_is_valid, kfw_is_valid
-
+    
 # ====================================================================================
 # BERECHNUNGSLOGIK (Kern der Anwendung)
 # ====================================================================================
@@ -1469,13 +1449,15 @@ def main():
     # ANWENDUNGSLOGIK
     # ----------------------------------------------------------------
 
-    # 1. Input-Widgets (Sidebar) anzeigen und Validierung durchführen
-    gik_is_valid, kfw_is_valid = display_sidebar_inputs()
+    # 1. Input-Widgets (im Expander) anzeigen und Validierung durchführen
+    # GEÄNDERT: Ruft die neue Funktion für die Hauptseite auf
+    gik_is_valid, kfw_is_valid = display_main_page_inputs()
 
     # 2. Aufruf der Berechnung und Anzeige der Ergebnisse
+    # HINWEIS: Dieser Teil ist der "Ergebnis-Teil", der unter dem Expander erscheint.
 
     if not gik_is_valid:
-        st.error("Berechnung nicht möglich: GIK-Aufteilung > 100%. Bitte korrigieren Sie die Eingaben in der Sidebar.")
+        st.error("Berechnung nicht möglich: GIK-Aufteilung > 100%. Bitte korrigieren Sie die Eingaben im Expander 'Eingabedaten'.")
     elif not kfw_is_valid:
          st.error("Berechnung nicht möglich: KfW-Darlehen überschreitet das Limit.")
     else:
