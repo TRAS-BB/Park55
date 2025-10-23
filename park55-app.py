@@ -226,6 +226,13 @@ def set_custom_style():
           -moz-appearance: textfield;
         }}
         
+        /* Versteckt den 'keyboard_double_arrow_right' Text 
+         (den alten Sidebar-Knopf-Platzhalter) 
+        */
+        [data-testid="stSidebarCollapseButton"] {{
+            display: none;
+        }}
+        
         /* --- ENDE NEUE ÄNDERUNGEN --- */
         
         /* HINWEIS: Sidebar-Styling wurde entfernt, da wir keine Sidebar mehr verwenden */
