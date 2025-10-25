@@ -9,8 +9,7 @@ import traceback
 import datetime
 import logging
 import warnings
-# StringIO wird für die Simulation der CSV benötigt, BytesIO für PDF
-from io import BytesIO, StringIO 
+from io import BytesIO
 
 # Logging Konfiguration
 logging.basicConfig(level=logging.INFO)
@@ -37,13 +36,13 @@ except ImportError:
 
 # --- SETUP & KONFIGURATION ---
 try:
+    # Layout bleibt "wide"
     st.set_page_config(layout="wide", page_title="Park 55 Immobilienrechner")
 except st.errors.StreamlitAPIException:
     pass
 
 # --- KONSTANTEN & STANDARDWERTE ---
 
-# [Konstanten bleiben unverändert]
 GREST_SATZ = 0.05
 NOTAR_AG_SATZ = 0.015
 ERWERBSNEBENKOSTEN_SATZ = GREST_SATZ + NOTAR_AG_SATZ
@@ -58,7 +57,13 @@ KFW_ZUSCHUSS_261_SATZ = 0.40
 KFW_ZUSCHUSS_BB_SATZ = 0.50
 KOSTEN_BB_PRO_WE_DEFAULT = 3998
 
-STEUERJAHRE_OPTIONEN = [2024, 2025]
+# Anpassung für das Datum
+try:
+    CURRENT_YEAR = datetime.date.today().year
+except Exception:
+    CURRENT_YEAR = 2025 # Fallback, falls Datum durch Umgebung überschrieben ist
+
+STEUERJAHRE_OPTIONEN = [CURRENT_YEAR, CURRENT_YEAR + 1]
 STEUERJAHRE_OPTIONEN.sort(reverse=True)
 STEUERJAHR_DEFAULT = STEUERJAHRE_OPTIONEN[0]
 
@@ -83,13 +88,14 @@ PDF_DISCLAIMER_TEXT = (
     "Alle Ergebnisse erfolgen ohne Gewähr. Eine rechtliche, steuerliche oder finanzielle Beratung wird ausdrücklich nicht erbracht."
 )
 
-# Konstante für manuelle Auswahl im Dropdown
-MANUAL_INPUT = "--- Manuelle Eingabe / Freie Berechnung ---"
+# Konstanten für Input Modus
+MODE_MANUAL = "Manuelle Eingabe"
+MODE_LIST = "Objektauswahl aus Liste"
 
-# Defaults (bleiben unverändert zur letzten Version)
+# Defaults
 DEFAULTS = {
     # Objektdaten (Defaults für Manuelle Eingabe)
-    'objekt_name': 'Freie Berechnung',
+    'objekt_name': '', # Leerstring für besseren Platzhalter
     'input_gik_netto': 0,
     'input_sanierungskostenanteil_pct': 0.0,
     'input_grundstuecksanteil_pct': 0.0,
@@ -135,46 +141,33 @@ DEFAULTS = {
 def load_object_data():
     """Lädt und bereinigt die Objektdaten aus der CSV-Datei."""
     
-    # --- ECHTE DATEI LADEN (Hier aktivieren, wenn bereit) ---
-    # file_path = "2025-10-16_Park 55_Rohdaten_Immobilienrechner App_v3.csv" 
-    # logging.info(f"Versuche, Objektdaten von {file_path} zu laden...")
-    # try:
-    #     # Wichtig: delimiter=';' setzen. 
-    #     # decimal='.' ist korrekt, da die Flächenspalten den Punkt verwenden.
-    #     df_raw = pd.read_csv(file_path, delimiter=';', decimal='.', encoding='utf-8')
-    # except FileNotFoundError:
-    #     st.error(f"FEHLER: Objektdaten-Datei nicht gefunden: '{file_path}'")
-    #     return pd.DataFrame()
-    # except Exception as e:
-    #     st.error(f"Fehler beim Laden der CSV: {e}")
-    #     return pd.DataFrame()
-    # -----------------------------------------------------------
-
-    # --- SIMULATION START (Entfernen, wenn echte Datei genutzt wird) ---
-    logging.info("Lade simulierte Objektdaten (Neue Struktur)...")
-    # Der Inhalt Ihrer bereitgestellten CSV-Datei wird hier eingefügt (Auszug)
-    csv_data = """Objekt_ID;Strasse;Hausnummer;Ort;Baujahr;AfA_Typ;Sanierungsgebiet_7h;Kaufpreis;Wohnflaeche_neu_qm;Anzahl_Wohneinheiten;Sanierungskosten;Foerderfaehige_Kosten_KFW;KFW_Zuschuss_Prozent;Kommunale_Foerderung_Betrag;Grundstuecksanteil_Kaufpreis;Vermietungsstatus;Wohnflaeche_qm;Kellerflaeche_qm;Anzahl_Stellplaetze;Wohnflaeche_Bestand_qm;Anzahl_Wohneinheiten_Bestand;Objekttyp;Grundstuecksgroesse_antlg;GIK_brutto;GIK_netto;Grund_Boden;Altsubstanz;SanAnteil_brutto;SanAnteil_netto
-SZ001;Breite Strasse;1;Salzgitter;1939;Denkmal;ja;174278;375.37;6;1219946;1000356;0.4;112610;42150;teilvermietet;375.37;86.34;0;268.12;4;Kettenhaus;562;1405552,07;932213,02;4,82 %;15,09 %;86,79 %;80,09 %
-SZ002;Breite Strasse;3;Salzgitter;1939;Denkmal;ja;174278;375.37;6;1219946;1000356;0.4;112610;42150;teilvermietet;375.37;86.34;0;268.12;4;Kettenhaus;562;1405552,07;932213,02;4,82 %;15,09 %;86,79 %;80,09 %
-SZ003;Breite Strasse;5;Salzgitter;1939;Denkmal;ja;162832;350.71;6;1139821;934653;0.4;105214;42150;leerstehend;350.71;80.66;0;250.51;4;Kettenhaus;562;1313236,05;870985,69;5,15 %;14,76 %;86,79 %;80,09 %
-SZ163;Weserstrasse;30a;Salzgitter;1939;Denkmal;ja;19500;42.00;1;136500;111930;0.4;12600;525;vollvermietet;42.00;9.66;0;30.00;1;Kettenhaus;7;157267,50;104305,50;0,54 %;19,37 %;86,79 %;80,09 %
-"""
+    # --- ECHTE DATEI LADEN ---
+    # Der Dateiname muss exakt übereinstimmen und die Datei muss im selben Verzeichnis liegen.
+    file_path = "2025-10-25_Park 55_Rohdaten_Denkmalrechner App_final.csv" 
+    logging.info(f"Versuche, Objektdaten von {file_path} zu laden...")
     try:
-        # Wichtig: sep=';' und decimal='.'
-        df_raw = pd.read_csv(StringIO(csv_data), sep=';', decimal='.')
-    except Exception as e:
-        st.error(f"Fehler beim Einlesen der Datenstruktur: {e}")
+        # Wichtig: delimiter=';' setzen. 
+        # decimal='.' ist korrekt, da die relevanten Flächenspalten den Punkt verwenden.
+        df_raw = pd.read_csv(file_path, delimiter=';', decimal='.', encoding='utf-8')
+    except FileNotFoundError:
+        st.error(f"FEHLER: Objektdaten-Datei nicht gefunden: '{file_path}'. Bitte stellen Sie sicher, dass die Datei im selben Verzeichnis wie das Skript liegt.")
         return pd.DataFrame()
-    # --- SIMULATION ENDE ---
-
+    except pd.errors.ParserError as e:
+        st.error(f"Fehler beim Parsen der CSV-Datei. Stellen Sie sicher, dass das Format korrekt ist (Trennzeichen ';'): {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Allgemeiner Fehler beim Laden der CSV: {e}")
+        return pd.DataFrame()
+    # -----------------------------------------------------------
 
     # --- Datenbereinigung und Transformation ---
     df = pd.DataFrame()
 
     # 1. Erstelle einen benutzerfreundlichen Objektnamen für das Dropdown
     try:
-        # Konvertiere Hausnummer zu String, um Fehler bei gemischten Typen zu vermeiden
-        df['Objektname'] = df_raw['Objekt_ID'] + " - " + df_raw['Strasse'] + " " + df_raw['Hausnummer'].astype(str)
+        # Reihenfolge: Adresse (ID)
+        # Konvertiere Hausnummer zu String, um Fehler bei gemischten Typen (z.B. '30a') zu vermeiden
+        df['Objektname'] = df_raw['Strasse'] + " " + df_raw['Hausnummer'].astype(str) + " (" + df_raw['Objekt_ID'] + ")"
     except KeyError as e:
         st.error(f"CSV-Datei fehlen notwendige Spalten für den Objektnamen (Objekt_ID, Strasse oder Hausnummer): {e}")
         return pd.DataFrame()
@@ -191,7 +184,6 @@ SZ163;Weserstrasse;30a;Salzgitter;1939;Denkmal;ja;19500;42.00;1;136500;111930;0.
     # 3. Übertrage und konvertiere Daten
     for csv_col, app_col in required_cols.items():
         if csv_col in df_raw.columns:
-            # Da wir decimal='.' gesetzt haben, sollten diese Spalten bereits numerisch sein.
             # Wir erzwingen die Konvertierung und füllen Fehler (NaN) mit 0.
             df[app_col] = pd.to_numeric(df_raw[csv_col], errors='coerce').fillna(0)
         else:
@@ -202,8 +194,13 @@ SZ163;Weserstrasse;30a;Salzgitter;1939;Denkmal;ja;19500;42.00;1;136500;111930;0.
     # 4. Stelle korrekte Datentypen sicher
     df['Wohnflaeche'] = df['Wohnflaeche'].astype(float)
     df['Kellerflaeche'] = df['Kellerflaeche'].astype(float)
-    df['Anzahl_Whg'] = df['Anzahl_Whg'].astype(int)
-    df['Anzahl_Stellplaetze'] = df['Anzahl_Stellplaetze'].astype(int)
+    # Robustheit für Integer-Konvertierung
+    try:
+        df['Anzahl_Whg'] = df['Anzahl_Whg'].astype(int)
+        df['Anzahl_Stellplaetze'] = df['Anzahl_Stellplaetze'].astype(int)
+    except Exception as e:
+        st.error(f"Fehler bei der Konvertierung von Wohneinheiten/Stellplätzen in ganze Zahlen: {e}")
+        return pd.DataFrame()
 
     # Sicherstellen, dass mindestens 1 WE vorhanden ist (Stabilität)
     df['Anzahl_Whg'] = df['Anzahl_Whg'].apply(lambda x: max(1, x))
@@ -227,19 +224,39 @@ def initialize_session_state():
         # Initialisiere den berechneten Altbauanteil
         st.session_state['input_altbauanteil_pct'] = 100.0 - DEFAULTS['input_sanierungskostenanteil_pct'] - DEFAULTS['input_grundstuecksanteil_pct']
         
-        # Initialisiere die Objektauswahl auf Manuell
-        st.session_state['selected_object'] = MANUAL_INPUT
+        # Initialisiere den Input Modus
+        st.session_state['input_mode'] = MODE_MANUAL
+        st.session_state['selected_object'] = None # Kein Objekt initial ausgewählt
         st.session_state['initialized'] = True
 
+# Callback für Moduswechsel (Radio Button)
+def handle_mode_change():
+    """Wird aufgerufen, wenn der Radio Button (Manuell vs Liste) geändert wird."""
+    if st.session_state.input_mode == MODE_MANUAL:
+        # Wenn auf Manuell gewechselt wird, setze die Auswahl zurück und lade Defaults
+        st.session_state.selected_object = None
+        update_state_from_selection() # Lädt jetzt Defaults, da selected_object=None
+    elif st.session_state.input_mode == MODE_LIST:
+        # Wenn auf Liste gewechselt wird, sicherstellen, dass ein Objekt geladen wird.
+        df = load_object_data()
+        if not df.empty:
+            # Wenn noch kein Objekt ausgewählt war oder das ausgewählte ungültig ist, wähle das erste.
+            if st.session_state.selected_object is None or st.session_state.selected_object not in df['Objektname'].values:
+                 st.session_state.selected_object = df['Objektname'].iloc[0]
+            # Lade die Daten des nun ausgewählten Objekts.
+            update_state_from_selection()
+
+
+# Angepasster Callback für Objektauswahl
 def update_state_from_selection():
     """
-    Callback-Funktion: Aktualisiert den Session State bei Objektauswahl.
-    Lädt nur strukturelle Daten, keine GIK/Anteile.
+    Callback-Funktion: Aktualisiert den Session State bei Objektauswahl oder Moduswechsel.
     """
-    selected_name = st.session_state.selected_object
+    selected_name = st.session_state.get('selected_object') # Nutze .get() für Sicherheit
     df = load_object_data()
 
-    if selected_name == MANUAL_INPUT:
+    # Wenn selected_name None ist (durch Moduswechsel auf Manuell oder initial)
+    if selected_name is None:
         # Setze auf globale Defaults zurück
         target_data = {
             'Objektname': DEFAULTS['objekt_name'],
@@ -248,7 +265,7 @@ def update_state_from_selection():
             'Kellerflaeche': DEFAULTS['input_kellerflaeche'],
             'Anzahl_Stellplaetze': DEFAULTS['input_anzahl_stellplaetze']
         }
-        # Wichtig: GIK und Anteile explizit auf Default (0) zurücksetzen, falls sie vorher manuell geändert wurden.
+        # Wichtig: GIK und Anteile explizit auf Default (0) zurücksetzen.
         st.session_state.input_gik_netto = DEFAULTS['input_gik_netto']
         st.session_state.input_sanierungskostenanteil_pct = DEFAULTS['input_sanierungskostenanteil_pct']
         st.session_state.input_grundstuecksanteil_pct = DEFAULTS['input_grundstuecksanteil_pct']
@@ -256,7 +273,7 @@ def update_state_from_selection():
     elif not df.empty and selected_name in df['Objektname'].values:
         # Lade Daten aus dem (bereinigten) DataFrame
         target_data = df[df['Objektname'] == selected_name].iloc[0].to_dict()
-        # GIK und Anteile werden hier NICHT geladen, sie behalten ihren aktuellen Wert (z.B. 0).
+        # GIK und Anteile werden hier NICHT geladen.
     else:
         return # Nichts tun, wenn Auswahl ungültig ist
 
@@ -280,7 +297,6 @@ def update_state_from_selection():
 # ====================================================================================
 # HILFSFUNKTIONEN & FORMATIERUNG
 # ====================================================================================
-# [Formatierungsfunktionen bleiben unverändert]
 
 def format_euro(value, decimals=2):
     try:
@@ -297,6 +313,9 @@ def format_percent(value, decimals=2):
      try:
          if pd.isna(value): return "N/A"
          value = float(value)
+         # Angepasst für bessere Lesbarkeit, falls decimals 0 ist
+         if decimals == 0:
+             return f"{int(round(value*100, 0))}%"
          return f"{value*100:,.{decimals}f} %".replace('.', ',')
      except (ValueError, TypeError):
          return "0,00 %"
@@ -306,7 +325,6 @@ def format_aligned_line(label, value_str, label_width=28):
 
 
 # --- VALIDIERUNGSLOGIK ---
-# [Validierungslogik bleibt unverändert]
 
 def validate_gik_anteile(sanierung_pct, grundstueck_pct):
     """Prüft, ob die GIK-Anteile (in Prozent) plausibel sind."""
@@ -336,7 +354,6 @@ def validate_gik_anteile(sanierung_pct, grundstueck_pct):
 
 def set_custom_style():
     # JavaScript Snippet für den "Keyboard Arrow Scroll Fix"
-    # Verhindert das Scrollen der Seite, wenn Pfeiltasten in Number Inputs verwendet werden.
     keyboard_arrow_scroll_fix = """
     <script>
     const streamlitDoc = window.parent.document;
@@ -360,7 +377,7 @@ def set_custom_style():
     }
     
     // Attach listener only once to prevent duplicate execution on rerun
-    if (!window.parent.keyboardFixAttached) {
+    if (typeof window.parent.keyboardFixAttached === 'undefined' || !window.parent.keyboardFixAttached) {
         streamlitDoc.addEventListener('keydown', handleNumberInputKeydown, true);
         window.parent.keyboardFixAttached = true;
     }
@@ -377,9 +394,13 @@ def set_custom_style():
         
         h1, h2, h3, h4, h5, h6 {{ font-family: 'Cinzel', serif; color: {COLOR_PRIMARY}; }}
 
-        /* Sidebar Styling */
-        [data-testid="stSidebar"] {{
+        /* Input Container Styling */
+        .input-container {{
             background-color: {COLOR_LIGHT_BG};
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border: 1px solid {COLOR_PRIMARY};
         }}
 
         /* Tabs Styling */
@@ -426,180 +447,176 @@ def set_custom_style():
         """, unsafe_allow_html=True)
 
 # ====================================================================================
-# INPUT WIDGETS (Sidebar)
+# INPUT WIDGETS (Layout im Hauptbereich)
 # ====================================================================================
-# [Sidebar Widgets bleiben unverändert]
 
-def display_sidebar_inputs():
+def display_inputs():
     """
-    Zeigt alle Input-Widgets in der Sidebar an.
+    Zeigt alle Input-Widgets im Hauptbereich in einem Spaltenlayout an.
     """
-    st.sidebar.header("Eingabedaten")
-
-    # --- 0. Objektauswahl ---
-    st.sidebar.subheader("0. Objektauswahl")
-    df_objects = load_object_data()
     
-    if not df_objects.empty:
-        object_options = [MANUAL_INPUT] + df_objects['Objektname'].tolist()
-        
-        # Das Selectbox Widget. Der Callback (on_change) wird ausgelöst, wenn sich die Auswahl ändert.
-        st.sidebar.selectbox(
-            "Wählen Sie ein Objekt aus der Liste:",
-            options=object_options,
-            key='selected_object',
-            on_change=update_state_from_selection # Hier wird der Callback registriert
-        )
-    else:
-        st.sidebar.warning("Objektdaten konnten nicht geladen werden. Prüfen Sie die Datenquelle (CSV).")
-
-    # --- 1. Objektdaten ---
-    st.sidebar.subheader("1. Objektdaten & GIK")
-    # Der Wert für 'objekt_name' wird nun durch den Callback gesteuert
-    st.sidebar.text_input("Objektname / Beschreibung", key='objekt_name')
-    st.sidebar.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
-
-    # GIK Aufteilung & Validierung (Prozentual)
-    st.sidebar.markdown("**Aufteilung GIK (für AfA-Berechnung):**")
-    col1, col2 = st.sidebar.columns(2)
-    col1.number_input("Sanierungskostenanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_sanierungskostenanteil_pct')
-    col2.number_input("Grundstücksanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_grundstuecksanteil_pct')
-
-    # Validierungslogik
-    gik_is_valid, altbauanteil_pct, msg_type, msg = validate_gik_anteile(
-        st.session_state.input_sanierungskostenanteil_pct,
-        st.session_state.input_grundstuecksanteil_pct
+    # Wrapper für Styling
+    st.markdown('<div class="input-container">', unsafe_allow_html=True)
+    
+    # --- Modusauswahl ---
+    st.radio(
+        "Wählen Sie den Eingabemodus:",
+        options=[MODE_MANUAL, MODE_LIST],
+        key='input_mode',
+        horizontal=True,
+        on_change=handle_mode_change # Callback bei Moduswechsel
     )
 
-    if msg_type == "error":
-        st.sidebar.error(msg)
-    elif msg_type == "warning":
-        st.sidebar.warning(msg)
+    # Layout: 3 Spalten für die Eingabeblöcke
+    col1, col2, col3 = st.columns(3)
 
-    st.sidebar.number_input("Altbausubstanz (berechnet, %)", value=altbauanteil_pct, disabled=True, format="%.1f")
-
-    # Weitere Objektdaten (Werte werden durch Callback gesteuert)
-    st.sidebar.markdown("**Flächen & Einheiten:**")
-    col_w1, col_w2 = st.sidebar.columns(2)
-    col_w1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
-    col_w2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg')
-
-    col_k1, col_k2 = st.sidebar.columns(2)
-    col_k1.number_input("Kellerfläche (m², optional)", min_value=0.0, step=1.0, key='input_kellerflaeche')
-    col_k2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
-
-
-    # --- 2. KfW-Förderung ---
-    st.sidebar.subheader("2. KfW-Förderung (Programm 261)")
-
-    # Wert wird durch Callback gesteuert
-    st.sidebar.number_input("Kosten Baubegleitung (pro WE, €)", min_value=0, max_value=4000, step=1, format="%d", key='kosten_baubegleitung_pro_we')
-
-    # Berechnung des Max-Limits (nur Basis)
-    anzahl_whg = int(st.session_state.get('input_anzahl_whg', 1))
-    max_kfw_darlehen_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
-
-    # Robustheits-Fix (Stellt sicher, dass der Wert im State nicht das neue Maximum überschreitet)
-    current_kfw_value = st.session_state.get('input_kfw_darlehen_261_basis', DEFAULTS['input_kfw_darlehen_261_basis'])
-    
-    try:
-        current_kfw_value = float(current_kfw_value)
-        max_kfw_darlehen_basis = float(max_kfw_darlehen_basis)
-    except (ValueError, TypeError):
-        current_kfw_value = 0.0
-        max_kfw_darlehen_basis = 0.0
-
-    if current_kfw_value > max_kfw_darlehen_basis:
-        st.session_state.input_kfw_darlehen_261_basis = int(max_kfw_darlehen_basis)
-
-    # Widget rendern (Wert wird durch Callback gesteuert)
-    st.sidebar.number_input(f"Darlehenssumme Basis (Max: {format_euro(int(max_kfw_darlehen_basis),0)})", min_value=0, max_value=int(max_kfw_darlehen_basis), step=1000, key='input_kfw_darlehen_261_basis')
-    
-    # Information über das Gesamtdarlehen
-    kosten_bb_pro_we = float(st.session_state.get('kosten_baubegleitung_pro_we', 0))
-    kosten_baubegleitung_gesamt = kosten_bb_pro_we * anzahl_whg
-    kfw_gesamt = st.session_state.input_kfw_darlehen_261_basis + kosten_baubegleitung_gesamt
-    st.sidebar.info(f"Das gesamte KfW-Darlehen beträgt {format_euro(kfw_gesamt, 0)} (Basis + Baubegleitung).")
-
+    gik_is_valid = True
     kfw_is_valid = True
 
+    # --- Spalte 1: Objektauswahl, GIK, Flächen ---
+    with col1:
+        st.subheader("1. Objekt & Investition")
+        
+        # 1.1 Objektauswahl (Dynamisch basierend auf Modus)
+        df_objects = load_object_data()
+        
+        if st.session_state.input_mode == MODE_LIST:
+            if not df_objects.empty:
+                object_options = df_objects['Objektname'].tolist()
+                st.selectbox(
+                    "Objekt aus Liste wählen:",
+                    options=object_options,
+                    key='selected_object',
+                    on_change=update_state_from_selection # Callback bei Objektauswahl
+                )
+            else:
+                # Zeigt die Fehlermeldung aus load_object_data() an, falls die Datei nicht gefunden wurde.
+                st.warning("Wechseln Sie zurück zu 'Manuelle Eingabe', falls die Liste nicht verfügbar ist.")
 
-    # --- 3. Finanzierung (Bank) ---
-    st.sidebar.subheader("3. Finanzierung & Eigenkapital")
-    st.sidebar.number_input("Eigenkapitalquote (%)", min_value=0.0, max_value=100.0, step=0.1, format="%.1f", key='ek_quote_pct')
+        # Platzhalter hinzugefügt
+        st.text_input("Objektname / Beschreibung", key='objekt_name', placeholder="Geben Sie einen Namen oder eine Beschreibung ein...")
+        st.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
 
-    st.sidebar.markdown("**Bankdarlehen:**")
-    col_z1, col_t1 = st.sidebar.columns(2)
-    col_z1.number_input("Zinssatz Bank (p.a. %)", min_value=0.0, step=0.01, format="%.2f", key='bank_zins_pct')
-    col_t1.number_input("Tilgungsrate Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
+        # 1.2 GIK Aufteilung
+        st.markdown("**Aufteilung GIK (für AfA):**")
+        # Number Input beibehalten, da präziser für Anteileingabe als Slider
+        st.number_input("Sanierungskostenanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_sanierungskostenanteil_pct')
+        st.number_input("Grundstücksanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_grundstuecksanteil_pct')
 
-    st.sidebar.markdown("**KfW-Darlehen (Konditionen):**")
-    st.sidebar.number_input("Zinssatz KfW (p.a. %)", min_value=0.0, step=0.01, format="%.2f", key='kfw_zins_pct')
-    col_lz, col_tf = st.sidebar.columns(2)
-    
-    gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
-    max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
-    
-    if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
-        st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
+        # Validierungslogik
+        gik_is_valid, altbauanteil_pct, msg_type, msg = validate_gik_anteile(
+            st.session_state.input_sanierungskostenanteil_pct,
+            st.session_state.input_grundstuecksanteil_pct
+        )
 
-    col_lz.number_input("Gesamtlaufzeit (Jahre)", min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
-    col_tf.number_input("Tilgungsfreie Jahre", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
+        if msg_type == "error":
+            st.error(msg)
+        elif msg_type == "warning":
+            st.warning(msg)
+
+        st.number_input("Altbausubstanz (berechnet, %)", value=altbauanteil_pct, disabled=True, format="%.1f")
+
+        # 1.3 Flächen & Einheiten
+        st.markdown("**Flächen & Einheiten:**")
+        c_f1, c_f2 = st.columns(2)
+        c_f1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
+        c_f2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg')
+        c_f1.number_input("Kellerfläche (m²)", min_value=0.0, step=1.0, key='input_kellerflaeche')
+        c_f2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
 
 
-    # --- 4. Steuerliche Daten ---
-    st.sidebar.subheader("4. Steuerliche Annahmen")
-    
-    st.sidebar.radio("Steuersatz-Ermittlung", STEUER_MODI, key='steuer_modus', horizontal=True)
+    # --- Spalte 2: KfW-Förderung, Finanzierung, Steuern ---
+    with col2:
+        st.subheader("2. Finanzierung & Steuern")
 
-    if st.session_state.steuer_modus == STEUER_MODI[0]:
-        st.sidebar.number_input("Zu versteuerndes Einkommen (zvE)", min_value=0, step=10000, key='zve')
-        col_t, col_j = st.sidebar.columns([2, 1])
-        col_t.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
-        col_j.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, key='steuerjahr')
+        # 2.1 KfW-Förderung
+        st.markdown("**KfW-Förderung (Programm 261):**")
+        st.number_input("Kosten Baubegleitung (pro WE, €)", min_value=0, max_value=4000, step=1, format="%d", key='kosten_baubegleitung_pro_we')
 
-    else: # Steuersatz
-        st.sidebar.number_input("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
+        # Berechnung des Max-Limits
+        anzahl_whg = int(st.session_state.get('input_anzahl_whg', 1))
+        max_kfw_darlehen_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
 
-    st.sidebar.selectbox("Kirchensteuer", list(KIRCHENSTEUER_MAP.keys()), key='kirchensteuer_option')
+        # Robustheits-Fix
+        current_kfw_value = st.session_state.get('input_kfw_darlehen_261_basis', DEFAULTS['input_kfw_darlehen_261_basis'])
+        if float(current_kfw_value) > max_kfw_darlehen_basis:
+            st.session_state.input_kfw_darlehen_261_basis = int(max_kfw_darlehen_basis)
+            current_kfw_value = max_kfw_darlehen_basis
 
-    # --- 5. Parameter & Prognose ---
-    st.sidebar.subheader("5. Parameter & Prognose")
-    st.sidebar.number_input("Geplanter Verkauf nach (Jahren)", min_value=10, step=1, key='geplanter_verkauf')
+        st.number_input(f"Darlehen Basis (Max: {format_euro(int(max_kfw_darlehen_basis),0)})", min_value=0, max_value=int(max_kfw_darlehen_basis), step=1000, key='input_kfw_darlehen_261_basis')
+        
+        # Info Gesamtdarlehen
+        kosten_bb_pro_we = float(st.session_state.get('kosten_baubegleitung_pro_we', 0))
+        kfw_gesamt = current_kfw_value + (kosten_bb_pro_we * anzahl_whg)
+        st.caption(f"Gesamt KfW-Darlehen: {format_euro(kfw_gesamt, 0)}")
 
-    st.sidebar.markdown("**Mieten (Startwerte):**")
-    col_m1, col_m2 = st.sidebar.columns(2)
-    # Miete Wohnen: 8.00 bis 12.50, Step 0.10
-    col_m1.number_input("Miete Wohnen (€/m²)", min_value=8.0, max_value=12.50, step=0.1, format="%.2f", key='miete_wohnen')
-    # Miete Keller: 0.00 bis 5.00, Step 0.10
-    col_m2.number_input("Miete Keller (€/m²)", min_value=0.0, max_value=5.00, step=0.1, format="%.2f", key='miete_keller')
-    # Miete Stellplatz: 20.00 bis 60.00, Step 5.00
-    st.sidebar.number_input("Miete Stellplatz (€/Stk.)", min_value=20.0, max_value=60.0, step=5.0, format="%.2f", key='miete_stellplatz')
+        # 2.2 Finanzierung
+        st.markdown("**Finanzierungsstruktur:**")
+        # EK-Quote als Number Input für Präzision
+        st.number_input("Eigenkapitalquote (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='ek_quote_pct')
 
-    st.sidebar.markdown("**Entwicklung (p.a. %):**")
-    # Steigerungen: 0 bis 5% (Miete/Kosten) bzw. 10% (Wert), Step 0.5%
-    col_e1, col_e2 = st.sidebar.columns(2)
-    col_e1.number_input("Mietsteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f", key='mietsteigerung_pa_pct')
-    col_e2.number_input("Wertsteigerung (%)", min_value=0.0, max_value=10.0, step=0.5, format="%.1f", key='wertsteigerung_pa_pct')
-    
-    st.sidebar.markdown("**Kosten (Startwerte):**")
-    # Verwaltung: 0.00 bis 40.00, Step 0.10
-    st.sidebar.number_input("Verwaltung (€/Whg./Monat)", min_value=0.0, max_value=40.0, step=0.10, format="%.2f", key='nk_pro_wohnung')
-    st.sidebar.number_input("Kostensteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f", key='kostensteigerung_pa_pct')
+        c_d1, c_d2 = st.columns(2)
+        c_d1.markdown("**Bankdarlehen:**")
+        c_d1.number_input("Zinssatz Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_zins_pct')
+        c_d1.number_input("Tilgung Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
 
-    # Sicherheitsabschlag: 0 bis 20%, Step 1%
-    st.sidebar.number_input("Sicherheitsabschlag Miete (%)", min_value=0.0, max_value=20.0, step=1.0, format="%.0f", key='sicherheitsabschlag_pct')
+        c_d2.markdown("**KfW-Darlehen:**")
+        c_d2.number_input("Zinssatz KfW (%)", min_value=0.0, step=0.01, format="%.2f", key='kfw_zins_pct')
+        
+        # Laufzeit Logik
+        gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
+        max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
+        if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
+            st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
 
-    st.sidebar.markdown("---")
-    
-    st.sidebar.caption("©TRAS Beratungs- und Beteiligungs GmbH – Urheberrechtlich geschützte Anwendung. Alle Rechte vorbehalten.")
+        c_d2.number_input("Gesamtlaufzeit (J.)", min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
+        c_d2.number_input("Tilgungsfrei (J.)", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
+
+        # 2.3 Steuerliche Annahmen
+        st.markdown("**Steuerliche Annahmen:**")
+        st.radio("Steuersatz-Ermittlung", STEUER_MODI, key='steuer_modus', horizontal=True)
+
+        if st.session_state.steuer_modus == STEUER_MODI[0]:
+            st.number_input("Zu versteuerndes Einkommen (zvE)", min_value=0, step=10000, key='zve')
+            c_s1, c_s2 = st.columns(2)
+            c_s1.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
+            c_s2.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, key='steuerjahr')
+        else:
+            st.number_input("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
+
+        st.selectbox("Kirchensteuer", list(KIRCHENSTEUER_MAP.keys()), key='kirchensteuer_option')
+
+
+    # --- Spalte 3: Parameter & Prognose (Slider) ---
+    with col3:
+        st.subheader("3. Parameter & Prognose")
+        st.number_input("Geplanter Verkauf nach (Jahren)", min_value=10, step=1, key='geplanter_verkauf')
+
+        # Nutzung von st.slider
+        st.markdown("**Mieten (Startwerte):**")
+        # Formatierung für Slider angepasst (z.B. "%.2f €")
+        st.slider("Miete Wohnen (€/m²)", min_value=8.0, max_value=12.50, step=0.1, format="%.2f €", key='miete_wohnen')
+        st.slider("Miete Keller (€/m²)", min_value=0.0, max_value=5.00, step=0.1, format="%.2f €", key='miete_keller')
+        st.slider("Miete Stellplatz (€/Stk.)", min_value=20.0, max_value=60.0, step=5.0, format="%.0f €", key='miete_stellplatz')
+
+        st.markdown("**Entwicklung (p.a. %):**")
+        # Formatierung für Slider angepasst (z.B. "%.1f%%")
+        st.slider("Mietsteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f%%", key='mietsteigerung_pa_pct')
+        st.slider("Wertsteigerung (%)", min_value=0.0, max_value=10.0, step=0.5, format="%.1f%%", key='wertsteigerung_pa_pct')
+        
+        st.markdown("**Kosten:**")
+        st.slider("Verwaltung (€/Whg./Monat)", min_value=0.0, max_value=40.0, step=0.10, format="%.2f €", key='nk_pro_wohnung')
+        st.slider("Kostensteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f%%", key='kostensteigerung_pa_pct')
+
+        st.slider("Sicherheitsabschlag Miete (%)", min_value=0.0, max_value=20.0, step=1.0, format="%.0f%%", key='sicherheitsabschlag_pct')
+
+    st.markdown('</div>', unsafe_allow_html=True) # Schließe Wrapper
 
     return gik_is_valid, kfw_is_valid
 
 # ====================================================================================
 # BERECHNUNGSLOGIK (Kern der Anwendung)
 # ====================================================================================
-# [Die Berechnungsfunktionen (run_calculations bis calculate_irr) bleiben unverändert.]
 
 def run_calculations(inputs_pct):
     """Führt die gesamte Immobilienberechnung durch."""
@@ -806,7 +823,6 @@ def calculate_revenues_costs(params, results):
 # ====================================================================================
 # DETAILLIERTE PROJEKTIONSRECHNUNG (Finanzierung, Steuern, Cashflow)
 # ====================================================================================
-# [Projektionsfunktionen bleiben unverändert]
 
 def calculate_projection(params, results):
     """Führt die detaillierte Projektion über den Berechnungszeitraum durch."""
@@ -1068,7 +1084,6 @@ def calculate_irr(params, results):
 # ====================================================================================
 # PDF EXPORT LOGIK
 # ====================================================================================
-# [PDF-Funktionen bleiben unverändert]
 
 def add_footer(canvas, doc):
     """Fügt den Disclaimer als Fußzeile auf jeder Seite hinzu."""
@@ -1113,9 +1128,16 @@ def create_pdf_report(results, params):
 
     # --- Titel ---
     story.append(Paragraph("Park 55 Immobilienrechner - Analysebericht", styles['TitleStyle']))
-    story.append(Paragraph(f"Objekt: {params['objekt_name']}", styles['HeaderStyle']))
+    objekt_name_display = params['objekt_name'] if params['objekt_name'] else "Freie Berechnung"
+    story.append(Paragraph(f"Objekt: {objekt_name_display}", styles['HeaderStyle']))
+    
     # Anpassung für das Datum
-    story.append(Paragraph(f"Berechnung vom: {datetime.date.today().strftime('%d.%m.%Y')}", styles['NormalStyle']))
+    try:
+        today_date = datetime.date.today().strftime('%d.%m.%Y')
+    except Exception:
+        today_date = "N/A"
+        
+    story.append(Paragraph(f"Berechnung vom: {today_date}", styles['NormalStyle']))
     story.append(Spacer(1, 0.5*cm))
 
     # --- Zusammenfassung (KPIs) ---
@@ -1271,13 +1293,12 @@ def create_pdf_report(results, params):
 # ====================================================================================
 # ERGEBNISANZEIGE (Darstellung der Ergebnisse)
 # ====================================================================================
-# [Anzeige-Funktionen bleiben unverändert]
 
 def display_results(results, params):
     """
     Stellt die berechneten Ergebnisse dar und bietet den PDF-Download an.
     """
-    st.header(f"Ergebnisse der Berechnung: {st.session_state['objekt_name']}")
+    # Header wurde bereits in main() angezeigt
 
     if results['investitionssumme_gesamt'] == 0:
         st.warning("Die Gesamtinvestitionskosten (GIK) sind 0. Bitte geben Sie die Daten ein, um die Berechnung zu starten.")
@@ -1298,7 +1319,8 @@ def display_results(results, params):
             
             if pdf_buffer:
                 # Bereinige den Objektnamen für den Dateinamen
-                safe_filename = "".join([c for c in params['objekt_name'] if c.isalnum() or c in (' ', '-', '_')]).rstrip().replace(' ', '_')
+                objekt_name_for_file = params['objekt_name'] if params['objekt_name'] else "Freie_Berechnung"
+                safe_filename = "".join([c for c in objekt_name_for_file if c.isalnum() or c in (' ', '-', '_')]).rstrip().replace(' ', '_')
                 st.download_button(
                     label="⬇️ Analyse als PDF herunterladen",
                     data=pdf_buffer,
@@ -1604,7 +1626,7 @@ def main():
     st.title("Park 55 Immobilienrechner")
 
     # Einführungstext (Angepasst)
-    st.info("Wählen Sie ein Objekt aus oder starten Sie eine freie Berechnung (über 'Manuelle Eingabe'). Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
+    st.info("Wählen Sie den Eingabemodus (Manuell oder Liste). Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
 
     # Optionale Warnings
     if not IRR_ENABLED:
@@ -1616,8 +1638,13 @@ def main():
     # ANWENDUNGSLOGIK
     # ----------------------------------------------------------------
 
-    # 1. Input-Widgets (Sidebar) anzeigen.
-    gik_is_valid, kfw_is_valid = display_sidebar_inputs()
+    # 1. Input-Widgets anzeigen (Nutzt nun den Hauptbereich)
+    gik_is_valid, kfw_is_valid = display_inputs()
+
+    st.markdown("---")
+    # Header für Ergebnisse
+    objekt_name_header = st.session_state['objekt_name'] if st.session_state['objekt_name'] else 'Ihre Eingabe'
+    st.header(f"Berechnungsergebnisse: {objekt_name_header}")
 
     # 2. Aufruf der Berechnung und Anzeige der Ergebnisse
 
@@ -1635,9 +1662,14 @@ def main():
             st.error(f"Berechnungsfehler: {e}.")
             logging.error(traceback.format_exc())
         except Exception as e:
+            # Allgemeine Fehlerbehandlung
             st.error(f"Ein unerwarteter Fehler ist während der Berechnung aufgetreten.")
             logging.error("Fehler bei der Berechnung:")
             logging.error(traceback.format_exc())
+
+    # Footer Hinweis
+    st.markdown("---")
+    st.caption("©TRAS Beratungs- und Beteiligungs GmbH – Urheberrechtlich geschützte Anwendung. Alle Rechte vorbehalten.")
 
 if __name__ == '__main__':
     # Globale Fehlerbehandlung
