@@ -1,5 +1,1 @@
-streamlit
-pandas
-numpy
-numpy-financial
-reportlab
+streamlitpandasnumpynumpy-financialreportlab
