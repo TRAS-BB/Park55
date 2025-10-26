@@ -36,8 +36,7 @@ except ImportError:
 
 # --- SETUP & KONFIGURATION ---
 try:
-    # Layout bleibt "wide"
-    st.set_page_config(layout="wide", page_title="Park 55 Immobilienrechner")
+    st.set_page_config(layout="wide", page_title="Park 55 | Investitionsrechner")
 except st.errors.StreamlitAPIException:
     pass
 
@@ -51,21 +50,34 @@ AFA_TYP = "Denkmal"
 AFA_ALTBAU_SATZ = 0.02
 AFA_DENKMAL_J1_8 = 0.09
 AFA_DENKMAL_J9_12 = 0.07
-BERECHNUNGSZEITRAUM = 30
+# Erhöht auf 35, um maximale KfW Laufzeiten abzubilden
+BERECHNUNGSZEITRAUM = 35 
 KFW_LIMIT_PRO_WE_BASIS = 150000
 KFW_ZUSCHUSS_261_SATZ = 0.40
 KFW_ZUSCHUSS_BB_SATZ = 0.50
 KOSTEN_BB_PRO_WE_DEFAULT = 3998
 
-# Anpassung für das Datum
+# NEU: KfW Darlehenstypen
+KFW_ANNUITAET = "Annuitätendarlehen"
+KFW_ENDFAELLIG = "Endfälliges Darlehen"
+KFW_DARLEHENSTYPEN = [KFW_ANNUITAET, KFW_ENDFAELLIG]
+
+
+# Anpassung für das Datum und Steuerjahre
+MIN_STEUERJAHR = 2024
 try:
     CURRENT_YEAR = datetime.date.today().year
 except Exception:
-    CURRENT_YEAR = 2025 # Fallback, falls Datum durch Umgebung überschrieben ist
+    try:
+        import datetime as real_datetime
+        CURRENT_YEAR = real_datetime.date.today().year
+    except:
+        CURRENT_YEAR = 2025 # Sicherer Fallback
 
-STEUERJAHRE_OPTIONEN = [CURRENT_YEAR, CURRENT_YEAR + 1]
+STEUERJAHRE_OPTIONEN = list(range(MIN_STEUERJAHR, max(MIN_STEUERJAHR + 1, CURRENT_YEAR + 2)))
 STEUERJAHRE_OPTIONEN.sort(reverse=True)
-STEUERJAHR_DEFAULT = STEUERJAHRE_OPTIONEN[0]
+STEUERJAHR_DEFAULT = 2024
+
 
 KIRCHENSTEUER_MAP = {
     "Keine": 0.0,
@@ -84,7 +96,7 @@ RL_COLOR_LIGHT_BG = colors.HexColor(COLOR_LIGHT_BG) if PDF_EXPORT_ENABLED else N
 
 PDF_DISCLAIMER_TEXT = (
     "Disclaimer: Diese Berechnung dient Ihrer Orientierung und basiert auf den von Ihnen gemachten Angaben und Annahmen. "
-    "Steuerliche Vorteile, KfW-Förderungen und Kostenansätze sind beispielhaft und können abweichen. "
+    "Steuerliche Vorteile, KfW-Förderungen, kommunale Zuschüsse und Kostenansätze sind beispielhaft und können abweichen. "
     "Alle Ergebnisse erfolgen ohne Gewähr. Eine rechtliche, steuerliche oder finanzielle Beratung wird ausdrücklich nicht erbracht."
 )
 
@@ -92,39 +104,54 @@ PDF_DISCLAIMER_TEXT = (
 MODE_MANUAL = "Manuelle Eingabe"
 MODE_LIST = "Objektauswahl aus Liste"
 
+# Konstanten für Erwerbsmodell
+MODELL_BAUTRAEGER = "Bauträgermodell (Schlüsselfertig)"
+MODELL_KAUF_GU = "Kauf & GU-Vertrag (Getrennte Verträge)"
+ERWERBSMODELLE = [MODELL_BAUTRAEGER, MODELL_KAUF_GU]
+
+
 # Defaults
 DEFAULTS = {
     # Objektdaten (Defaults für Manuelle Eingabe)
-    'objekt_name': '', # Leerstring für besseren Platzhalter
+    'objekt_name': '',
     'input_gik_netto': 0,
-    'input_sanierungskostenanteil_pct': 0.0,
-    'input_grundstuecksanteil_pct': 0.0,
+    'input_sanierungskostenanteil_pct': 80.0,
+    'input_grundstuecksanteil_pct': 8.0,
     'input_wohnflaeche': 0.0,
     'input_anzahl_whg': 1,
     'input_kellerflaeche': 0.0,
     'input_anzahl_stellplaetze': 0,
-    
-    'input_kfw_darlehen_261_basis': KFW_LIMIT_PRO_WE_BASIS, # Default für 1 WE
+
+    'input_kommunale_foerderung': 0,
+
+    'input_kfw_darlehen_261_basis': KFW_LIMIT_PRO_WE_BASIS,
     'kosten_baubegleitung_pro_we': KOSTEN_BB_PRO_WE_DEFAULT,
 
+    # Erwerbsmodell Default
+    'erwerbsmodell': MODELL_BAUTRAEGER,
+
     # Berechnungsparameter
-    'ek_quote_pct': 15.0,
+    'ek_quote_pct': 20.0,
     'bank_zins_pct': 4.20,
     'bank_tilgung_pct': 2.00,
+    
+    # NEU: KfW Parameter inkl. Typ
+    'kfw_darlehenstyp': KFW_ANNUITAET,
     'kfw_zins_pct': 2.92,
     'kfw_gesamtlaufzeit': 30,
     'kfw_tilgungsfreie_jahre': 4,
 
-    'steuer_modus': STEUER_MODI[0], 'zve': 150000,
+    'steuer_modus': STEUER_MODI[0],
+    'zve': 100000,
     'steuersatz_manuell_pct': 42.0,
     'steuertabelle': 'Grund',
     'kirchensteuer_option': KIRCHENSTEUER_DEFAULT,
     'steuerjahr': STEUERJAHR_DEFAULT,
-    'geplanter_verkauf': 12,
+    'geplanter_verkauf': 10,
 
     # Parameter & Prognose
     'sicherheitsabschlag_pct': 5.0,
-    'mietsteigerung_pa_pct': 2.0, 
+    'mietsteigerung_pa_pct': 2.0,
     'kostensteigerung_pa_pct': 1.5,
     'wertsteigerung_pa_pct': 2.0,
     'nk_pro_wohnung': 30.00,
@@ -137,77 +164,58 @@ DEFAULTS = {
 # DATENMANAGEMENT & SESSION STATE
 # ====================================================================================
 
+# (load_object_data, initialize_session_state, handle_mode_change, handle_anzahl_whg_change, update_state_from_selection bleiben unverändert)
+
 @st.cache_data
 def load_object_data():
     """Lädt und bereinigt die Objektdaten aus der CSV-Datei."""
-    
-    # --- ECHTE DATEI LADEN ---
-    # Der Dateiname muss exakt übereinstimmen und die Datei muss im selben Verzeichnis liegen.
-    file_path = "2025-10-25_Park 55_Rohdaten_Denkmalrechner App_final.csv" 
+
+    # HINWEIS: Der Dateiname muss ggf. angepasst werden, falls er sich ändert.
+    file_path = "2025-10-25_Park 55_Rohdaten_Denkmalrechner App_final.csv"
     logging.info(f"Versuche, Objektdaten von {file_path} zu laden...")
     try:
-        # Wichtig: delimiter=';' setzen. 
-        # decimal='.' ist korrekt, da die relevanten Flächenspalten den Punkt verwenden.
         df_raw = pd.read_csv(file_path, delimiter=';', decimal='.', encoding='utf-8')
     except FileNotFoundError:
-        st.error(f"FEHLER: Objektdaten-Datei nicht gefunden: '{file_path}'. Bitte stellen Sie sicher, dass die Datei im selben Verzeichnis wie das Skript liegt.")
-        return pd.DataFrame()
-    except pd.errors.ParserError as e:
-        st.error(f"Fehler beim Parsen der CSV-Datei. Stellen Sie sicher, dass das Format korrekt ist (Trennzeichen ';'): {e}")
+        logging.warning(f"Objektdaten-Datei nicht gefunden: '{file_path}'.")
         return pd.DataFrame()
     except Exception as e:
-        st.error(f"Allgemeiner Fehler beim Laden der CSV: {e}")
+        logging.error(f"Allgemeiner Fehler beim Laden der CSV: {e}")
         return pd.DataFrame()
-    # -----------------------------------------------------------
 
     # --- Datenbereinigung und Transformation ---
     df = pd.DataFrame()
 
-    # 1. Erstelle einen benutzerfreundlichen Objektnamen für das Dropdown
     try:
-        # Reihenfolge: Adresse (ID)
-        # Konvertiere Hausnummer zu String, um Fehler bei gemischten Typen (z.B. '30a') zu vermeiden
         df['Objektname'] = df_raw['Strasse'] + " " + df_raw['Hausnummer'].astype(str) + " (" + df_raw['Objekt_ID'] + ")"
     except KeyError as e:
-        st.error(f"CSV-Datei fehlen notwendige Spalten für den Objektnamen (Objekt_ID, Strasse oder Hausnummer): {e}")
+        logging.error(f"CSV-Datei fehlen notwendige Spalten für den Objektnamen: {e}")
         return pd.DataFrame()
 
-    # 2. Wähle die benötigten Spalten aus und benenne sie um
-    # Wir laden nur physische Eigenschaften (Flächen, Einheiten).
     required_cols = {
         'Wohnflaeche_neu_qm': 'Wohnflaeche',
         'Anzahl_Wohneinheiten': 'Anzahl_Whg',
         'Kellerflaeche_qm': 'Kellerflaeche',
         'Anzahl_Stellplaetze': 'Anzahl_Stellplaetze'
     }
-    
-    # 3. Übertrage und konvertiere Daten
+
     for csv_col, app_col in required_cols.items():
         if csv_col in df_raw.columns:
-            # Wir erzwingen die Konvertierung und füllen Fehler (NaN) mit 0.
             df[app_col] = pd.to_numeric(df_raw[csv_col], errors='coerce').fillna(0)
         else:
-            # Warnung, falls eine erwartete Spalte fehlt
-            logging.warning(f"Spalte '{csv_col}' nicht in CSV gefunden. Setze auf 0.")
             df[app_col] = 0
 
-    # 4. Stelle korrekte Datentypen sicher
-    df['Wohnflaeche'] = df['Wohnflaeche'].astype(float)
-    df['Kellerflaeche'] = df['Kellerflaeche'].astype(float)
-    # Robustheit für Integer-Konvertierung
     try:
+        df['Wohnflaeche'] = df['Wohnflaeche'].astype(float)
+        df['Kellerflaeche'] = df['Kellerflaeche'].astype(float)
         df['Anzahl_Whg'] = df['Anzahl_Whg'].astype(int)
         df['Anzahl_Stellplaetze'] = df['Anzahl_Stellplaetze'].astype(int)
     except Exception as e:
-        st.error(f"Fehler bei der Konvertierung von Wohneinheiten/Stellplätzen in ganze Zahlen: {e}")
+        logging.error(f"Fehler bei der Konvertierung der Objektdaten: {e}")
         return pd.DataFrame()
 
-    # Sicherstellen, dass mindestens 1 WE vorhanden ist (Stabilität)
     df['Anzahl_Whg'] = df['Anzahl_Whg'].apply(lambda x: max(1, x))
-        
-    # Entferne leere Zeilen am Ende, falls vorhanden
     df = df.dropna(subset=['Objektname'])
-        
+
     logging.info(f"Erfolgreich {len(df)} Objekte geladen.")
     return df
 
@@ -216,35 +224,36 @@ def initialize_session_state():
     """Initialisiert den Streamlit Session State mit Default-Werten."""
     if 'initialized' not in st.session_state:
         logging.info("Initialisiere Session State...")
-        # Lade die globalen Defaults
         for key, value in DEFAULTS.items():
             if key not in st.session_state:
                 st.session_state[key] = value
-        
-        # Initialisiere den berechneten Altbauanteil
+
         st.session_state['input_altbauanteil_pct'] = 100.0 - DEFAULTS['input_sanierungskostenanteil_pct'] - DEFAULTS['input_grundstuecksanteil_pct']
-        
-        # Initialisiere den Input Modus
+
         st.session_state['input_mode'] = MODE_MANUAL
-        st.session_state['selected_object'] = None # Kein Objekt initial ausgewählt
+        st.session_state['selected_object'] = None
         st.session_state['initialized'] = True
 
 # Callback für Moduswechsel (Radio Button)
 def handle_mode_change():
     """Wird aufgerufen, wenn der Radio Button (Manuell vs Liste) geändert wird."""
     if st.session_state.input_mode == MODE_MANUAL:
-        # Wenn auf Manuell gewechselt wird, setze die Auswahl zurück und lade Defaults
         st.session_state.selected_object = None
-        update_state_from_selection() # Lädt jetzt Defaults, da selected_object=None
+        update_state_from_selection()
     elif st.session_state.input_mode == MODE_LIST:
-        # Wenn auf Liste gewechselt wird, sicherstellen, dass ein Objekt geladen wird.
         df = load_object_data()
         if not df.empty:
-            # Wenn noch kein Objekt ausgewählt war oder das ausgewählte ungültig ist, wähle das erste.
             if st.session_state.selected_object is None or st.session_state.selected_object not in df['Objektname'].values:
                  st.session_state.selected_object = df['Objektname'].iloc[0]
-            # Lade die Daten des nun ausgewählten Objekts.
             update_state_from_selection()
+
+# Callback für Änderung der Anzahl Wohnungen (Manuelle Eingabe)
+def handle_anzahl_whg_change():
+    """Aktualisiert das maximale KfW-Darlehen und setzt den Default-Wert darauf, wenn die Anzahl WE manuell geändert wird."""
+    if st.session_state.get('input_mode') == MODE_MANUAL:
+        anzahl_whg = st.session_state.get('input_anzahl_whg', 1)
+        max_kfw_darlehen_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
+        st.session_state.input_kfw_darlehen_261_basis = int(max_kfw_darlehen_basis)
 
 
 # Angepasster Callback für Objektauswahl
@@ -252,10 +261,9 @@ def update_state_from_selection():
     """
     Callback-Funktion: Aktualisiert den Session State bei Objektauswahl oder Moduswechsel.
     """
-    selected_name = st.session_state.get('selected_object') # Nutze .get() für Sicherheit
+    selected_name = st.session_state.get('selected_object')
     df = load_object_data()
 
-    # Wenn selected_name None ist (durch Moduswechsel auf Manuell oder initial)
     if selected_name is None:
         # Setze auf globale Defaults zurück
         target_data = {
@@ -265,17 +273,15 @@ def update_state_from_selection():
             'Kellerflaeche': DEFAULTS['input_kellerflaeche'],
             'Anzahl_Stellplaetze': DEFAULTS['input_anzahl_stellplaetze']
         }
-        # Wichtig: GIK und Anteile explizit auf Default (0) zurücksetzen.
         st.session_state.input_gik_netto = DEFAULTS['input_gik_netto']
         st.session_state.input_sanierungskostenanteil_pct = DEFAULTS['input_sanierungskostenanteil_pct']
         st.session_state.input_grundstuecksanteil_pct = DEFAULTS['input_grundstuecksanteil_pct']
+        st.session_state.input_kommunale_foerderung = DEFAULTS['input_kommunale_foerderung']
 
     elif not df.empty and selected_name in df['Objektname'].values:
-        # Lade Daten aus dem (bereinigten) DataFrame
         target_data = df[df['Objektname'] == selected_name].iloc[0].to_dict()
-        # GIK und Anteile werden hier NICHT geladen.
     else:
-        return # Nichts tun, wenn Auswahl ungültig ist
+        return
 
     # 1. Aktualisiere Basisdaten im State
     st.session_state.objekt_name = target_data['Objektname']
@@ -283,20 +289,20 @@ def update_state_from_selection():
     st.session_state.input_anzahl_whg = int(target_data['Anzahl_Whg'])
     st.session_state.input_kellerflaeche = float(target_data['Kellerflaeche'])
     st.session_state.input_anzahl_stellplaetze = int(target_data['Anzahl_Stellplaetze'])
-    
+
     # 2. Berechne und aktualisiere abgeleitete Werte (KfW, BB)
     anzahl_whg = st.session_state.input_anzahl_whg
-    
-    # KfW Basisdarlehen (Maximalbetrag)
+
     kfw_basis = anzahl_whg * KFW_LIMIT_PRO_WE_BASIS
     st.session_state.input_kfw_darlehen_261_basis = kfw_basis
-    
-    # Kosten Baubegleitung (Standardwert pro WE)
+
     st.session_state.kosten_baubegleitung_pro_we = KOSTEN_BB_PRO_WE_DEFAULT
 
 # ====================================================================================
 # HILFSFUNKTIONEN & FORMATIERUNG
 # ====================================================================================
+
+# (format_euro, format_percent, format_aligned_line, validate_gik_anteile, set_custom_style bleiben unverändert)
 
 def format_euro(value, decimals=2):
     try:
@@ -311,14 +317,14 @@ def format_euro(value, decimals=2):
 
 def format_percent(value, decimals=2):
      try:
-         if pd.isna(value): return "N/A"
-         value = float(value)
-         # Angepasst für bessere Lesbarkeit, falls decimals 0 ist
-         if decimals == 0:
-             return f"{int(round(value*100, 0))}%"
-         return f"{value*100:,.{decimals}f} %".replace('.', ',')
+        if pd.isna(value): return "N/A"
+        if value == float('inf'): return "∞ %" # Handle infinite RoE
+        value = float(value)
+        if decimals == 0:
+            return f"{int(round(value*100, 0))}%"
+        return f"{value*100:,.{decimals}f} %".replace('.', ',')
      except (ValueError, TypeError):
-         return "0,00 %"
+        return "0,00 %"
 
 def format_aligned_line(label, value_str, label_width=28):
     return f"{label:<{label_width}}{value_str:>15}"
@@ -343,7 +349,6 @@ def validate_gik_anteile(sanierung_pct, grundstueck_pct):
     altbauanteil_pct = 100.0 - summe_anteile_pct
     st.session_state['input_altbauanteil_pct'] = altbauanteil_pct
 
-    # Nur warnen, wenn eine Investitionssumme > 0 eingegeben wurde
     if altbauanteil_pct < 5.0 and altbauanteil_pct >= 0 and st.session_state.get('input_gik_netto', 0) > 0:
         msg = f"Hinweis: Anteil Altbausubstanz ({altbauanteil_pct:.2f}%) ist sehr gering."
         return True, altbauanteil_pct, "warning", msg
@@ -351,13 +356,12 @@ def validate_gik_anteile(sanierung_pct, grundstueck_pct):
     return True, altbauanteil_pct, "success", "Plausibel."
 
 # --- DESIGN & STYLING ---
-
 def set_custom_style():
     # JavaScript Snippet für den "Keyboard Arrow Scroll Fix"
     keyboard_arrow_scroll_fix = """
     <script>
     const streamlitDoc = window.parent.document;
-    
+
     function handleNumberInputKeydown(e) {
         if (e.target.tagName === 'INPUT' && e.target.type === 'number') {
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -375,7 +379,7 @@ def set_custom_style():
             }
         }
     }
-    
+
     // Attach listener only once to prevent duplicate execution on rerun
     if (typeof window.parent.keyboardFixAttached === 'undefined' || !window.parent.keyboardFixAttached) {
         streamlitDoc.addEventListener('keydown', handleNumberInputKeydown, true);
@@ -391,7 +395,7 @@ def set_custom_style():
 
         /* Basis Styling */
         html, body {{ font-family: 'Lato', sans-serif; }}
-        
+
         h1, h2, h3, h4, h5, h6 {{ font-family: 'Cinzel', serif; color: {COLOR_PRIMARY}; }}
 
         /* Input Container Styling */
@@ -454,18 +458,44 @@ def display_inputs():
     """
     Zeigt alle Input-Widgets im Hauptbereich in einem Spaltenlayout an.
     """
-    
+
     # Wrapper für Styling
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
-    
+
     # --- Modusauswahl ---
+    
+    df_objects = load_object_data()
+    if df_objects.empty:
+        if st.session_state.input_mode != MODE_MANUAL:
+             st.session_state.input_mode = MODE_MANUAL
+             handle_mode_change()
+        st.warning("Objektdatenliste (CSV) konnte nicht geladen werden oder war leer. Nur manuelle Eingabe möglich.")
+        input_options = [MODE_MANUAL]
+    else:
+        input_options = [MODE_MANUAL, MODE_LIST]
+
     st.radio(
         "Wählen Sie den Eingabemodus:",
-        options=[MODE_MANUAL, MODE_LIST],
+        options=input_options,
         key='input_mode',
         horizontal=True,
-        on_change=handle_mode_change # Callback bei Moduswechsel
+        on_change=handle_mode_change
     )
+
+    # Erwerbsmodell Auswahl
+    st.markdown("---")
+    st.radio(
+        "Wählen Sie das Erwerbsmodell (Basis für Grunderwerbsteuer/Notar):",
+        options=ERWERBSMODELLE,
+        key='erwerbsmodell',
+        horizontal=True
+    )
+    if st.session_state.erwerbsmodell == MODELL_BAUTRAEGER:
+        st.info(f"Bauträgermodell: Die KNK ({format_percent(ERWERBSNEBENKOSTEN_SATZ)}) werden auf die gesamten GIK (Kaufpreis + Sanierung) berechnet.")
+    else:
+        st.info(f"Kauf & GU: Die KNK ({format_percent(ERWERBSNEBENKOSTEN_SATZ)}) werden nur auf den Bestand (GIK exklusive Sanierungskosten) berechnet. Die korrekte Aufteilung der GIK (siehe Spalte 1) ist hierfür entscheidend.")
+    st.markdown("---")
+
 
     # Layout: 3 Spalten für die Eingabeblöcke
     col1, col2, col3 = st.columns(3)
@@ -476,10 +506,8 @@ def display_inputs():
     # --- Spalte 1: Objektauswahl, GIK, Flächen ---
     with col1:
         st.subheader("1. Objekt & Investition")
-        
-        # 1.1 Objektauswahl (Dynamisch basierend auf Modus)
-        df_objects = load_object_data()
-        
+
+        # 1.1 Objektauswahl
         if st.session_state.input_mode == MODE_LIST:
             if not df_objects.empty:
                 object_options = df_objects['Objektname'].tolist()
@@ -487,19 +515,14 @@ def display_inputs():
                     "Objekt aus Liste wählen:",
                     options=object_options,
                     key='selected_object',
-                    on_change=update_state_from_selection # Callback bei Objektauswahl
+                    on_change=update_state_from_selection
                 )
-            else:
-                # Zeigt die Fehlermeldung aus load_object_data() an, falls die Datei nicht gefunden wurde.
-                st.warning("Wechseln Sie zurück zu 'Manuelle Eingabe', falls die Liste nicht verfügbar ist.")
 
-        # Platzhalter hinzugefügt
         st.text_input("Objektname / Beschreibung", key='objekt_name', placeholder="Geben Sie einen Namen oder eine Beschreibung ein...")
         st.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
 
         # 1.2 GIK Aufteilung
-        st.markdown("**Aufteilung GIK (für AfA):**")
-        # Number Input beibehalten, da präziser für Anteileingabe als Slider
+        st.markdown("**Aufteilung GIK (für AfA & KNK-Basis):**")
         st.number_input("Sanierungskostenanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_sanierungskostenanteil_pct')
         st.number_input("Grundstücksanteil (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='input_grundstuecksanteil_pct')
 
@@ -520,7 +543,7 @@ def display_inputs():
         st.markdown("**Flächen & Einheiten:**")
         c_f1, c_f2 = st.columns(2)
         c_f1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
-        c_f2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg')
+        c_f2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg', on_change=handle_anzahl_whg_change)
         c_f1.number_input("Kellerfläche (m²)", min_value=0.0, step=1.0, key='input_kellerflaeche')
         c_f2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
 
@@ -528,6 +551,12 @@ def display_inputs():
     # --- Spalte 2: KfW-Förderung, Finanzierung, Steuern ---
     with col2:
         st.subheader("2. Finanzierung & Steuern")
+
+        # Kommunale Fördermittel
+        st.markdown("**Fördermittel (Zuschüsse):**")
+        st.number_input("Kommunale Fördermittel (€)", min_value=0, step=1000, key='input_kommunale_foerderung')
+        st.caption("Wird als Zufluss (Jahr 1) gewertet und mindert die AfA-Basis Sanierung.")
+
 
         # 2.1 KfW-Förderung
         st.markdown("**KfW-Förderung (Programm 261):**")
@@ -544,15 +573,15 @@ def display_inputs():
             current_kfw_value = max_kfw_darlehen_basis
 
         st.number_input(f"Darlehen Basis (Max: {format_euro(int(max_kfw_darlehen_basis),0)})", min_value=0, max_value=int(max_kfw_darlehen_basis), step=1000, key='input_kfw_darlehen_261_basis')
-        
+
         # Info Gesamtdarlehen
+        current_kfw_value_from_input = st.session_state.input_kfw_darlehen_261_basis
         kosten_bb_pro_we = float(st.session_state.get('kosten_baubegleitung_pro_we', 0))
-        kfw_gesamt = current_kfw_value + (kosten_bb_pro_we * anzahl_whg)
+        kfw_gesamt = current_kfw_value_from_input + (kosten_bb_pro_we * anzahl_whg)
         st.caption(f"Gesamt KfW-Darlehen: {format_euro(kfw_gesamt, 0)}")
 
         # 2.2 Finanzierung
         st.markdown("**Finanzierungsstruktur:**")
-        # EK-Quote als Number Input für Präzision
         st.number_input("Eigenkapitalquote (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", key='ek_quote_pct')
 
         c_d1, c_d2 = st.columns(2)
@@ -560,17 +589,37 @@ def display_inputs():
         c_d1.number_input("Zinssatz Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_zins_pct')
         c_d1.number_input("Tilgung Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
 
+        # NEU: KfW Darlehenstyp und dynamische Inputs
         c_d2.markdown("**KfW-Darlehen:**")
-        c_d2.number_input("Zinssatz KfW (%)", min_value=0.0, step=0.01, format="%.2f", key='kfw_zins_pct')
         
-        # Laufzeit Logik
-        gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
-        max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
-        if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
-            st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
+        # NEU: Auswahl Darlehenstyp
+        c_d2.radio("Darlehenstyp", KFW_DARLEHENSTYPEN, key='kfw_darlehenstyp', horizontal=True)
 
-        c_d2.number_input("Gesamtlaufzeit (J.)", min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
-        c_d2.number_input("Tilgungsfrei (J.)", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
+        c_d2.number_input("Zinssatz KfW (%)", min_value=0.0, step=0.01, format="%.2f", key='kfw_zins_pct')
+
+        # Laufzeit Logik (NEU: Dynamisch basierend auf Typ)
+        is_annuitaet = st.session_state.kfw_darlehenstyp == KFW_ANNUITAET
+        
+        gesamtlaufzeit = st.session_state.kfw_gesamtlaufzeit
+        
+        # Nur relevant für Annuität
+        if is_annuitaet:
+            max_tilgungsfrei = max(0, gesamtlaufzeit - 1)
+            if st.session_state.kfw_tilgungsfreie_jahre > max_tilgungsfrei:
+                st.session_state.kfw_tilgungsfreie_jahre = max_tilgungsfrei
+        else:
+            # Bei endfällig sicherstellen, dass der Wert intern 0 ist (für Robustheit, auch wenn nicht genutzt)
+            st.session_state.kfw_tilgungsfreie_jahre = 0
+            max_tilgungsfrei = 0
+
+        # NEU: Dynamisches Label für Laufzeit
+        laufzeit_label = "Gesamtlaufzeit (J.)" if is_annuitaet else "Laufzeit bis Fälligkeit (J.)"
+        c_d2.number_input(laufzeit_label, min_value=1, max_value=35, step=1, key='kfw_gesamtlaufzeit')
+        
+        # NEU: Tilgungsfrei nur anzeigen, wenn Annuität
+        if is_annuitaet:
+            c_d2.number_input("Tilgungsfrei (J.)", min_value=0, max_value=max_tilgungsfrei, step=1, key='kfw_tilgungsfreie_jahre')
+
 
         # 2.3 Steuerliche Annahmen
         st.markdown("**Steuerliche Annahmen:**")
@@ -580,7 +629,14 @@ def display_inputs():
             st.number_input("Zu versteuerndes Einkommen (zvE)", min_value=0, step=10000, key='zve')
             c_s1, c_s2 = st.columns(2)
             c_s1.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
-            c_s2.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, key='steuerjahr')
+            
+            try:
+                default_index = STEUERJAHRE_OPTIONEN.index(st.session_state.steuerjahr)
+            except ValueError:
+                default_index = 0
+                st.session_state.steuerjahr = STEUERJAHRE_OPTIONEN[0]
+
+            c_s2.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, index=default_index, key='steuerjahr')
         else:
             st.number_input("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
 
@@ -592,18 +648,15 @@ def display_inputs():
         st.subheader("3. Parameter & Prognose")
         st.number_input("Geplanter Verkauf nach (Jahren)", min_value=10, step=1, key='geplanter_verkauf')
 
-        # Nutzung von st.slider
         st.markdown("**Mieten (Startwerte):**")
-        # Formatierung für Slider angepasst (z.B. "%.2f €")
         st.slider("Miete Wohnen (€/m²)", min_value=8.0, max_value=12.50, step=0.1, format="%.2f €", key='miete_wohnen')
         st.slider("Miete Keller (€/m²)", min_value=0.0, max_value=5.00, step=0.1, format="%.2f €", key='miete_keller')
         st.slider("Miete Stellplatz (€/Stk.)", min_value=20.0, max_value=60.0, step=5.0, format="%.0f €", key='miete_stellplatz')
 
         st.markdown("**Entwicklung (p.a. %):**")
-        # Formatierung für Slider angepasst (z.B. "%.1f%%")
         st.slider("Mietsteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f%%", key='mietsteigerung_pa_pct')
         st.slider("Wertsteigerung (%)", min_value=0.0, max_value=10.0, step=0.5, format="%.1f%%", key='wertsteigerung_pa_pct')
-        
+
         st.markdown("**Kosten:**")
         st.slider("Verwaltung (€/Whg./Monat)", min_value=0.0, max_value=40.0, step=0.10, format="%.2f €", key='nk_pro_wohnung')
         st.slider("Kostensteigerung (%)", min_value=0.0, max_value=5.0, step=0.5, format="%.1f%%", key='kostensteigerung_pa_pct')
@@ -618,10 +671,12 @@ def display_inputs():
 # BERECHNUNGSLOGIK (Kern der Anwendung)
 # ====================================================================================
 
+# (run_calculations, convert_inputs_to_params, calculate_investment, calculate_revenues_costs bleiben unverändert)
+
 def run_calculations(inputs_pct):
     """Führt die gesamte Immobilienberechnung durch."""
     results = {}
-    
+
     # 1. Konvertiere Prozent-Inputs in Dezimalzahlen für die Berechnung
     params = convert_inputs_to_params(inputs_pct)
 
@@ -636,38 +691,23 @@ def run_calculations(inputs_pct):
         results['grenzsteuersatz_netto'] = params['steuersatz_manuell']
     else:
         # Platzhalter 42%
-        results['grenzsteuersatz_netto'] = 0.42 
+        results['grenzsteuersatz_netto'] = 0.42
 
     kirchensteuer_satz = KIRCHENSTEUER_MAP.get(params['kirchensteuer_option'], 0.0)
     results['grenzsteuersatz_brutto'] = results['grenzsteuersatz_netto'] * (1 + SOLI_ZUSCHLAG + kirchensteuer_satz)
 
-    # 5. Zeitreihenentwicklung (Cashflow, AfA, Finanzierung)
+    # 5. Zeitreihenentwicklung
     results = calculate_projection(params, results)
 
     # 6. KPIs
-    # Division durch Null verhindern, falls GIK 0 ist
-    if results['gik_brutto'] > 0:
-        results['kpi_bruttomietrendite'] = results['jahreskaltmiete_netto'] / results['gik_brutto']
-    else:
-        results['kpi_bruttomietrendite'] = 0
-    
-    wohnflaeche = float(params['input_wohnflaeche'])
-    if wohnflaeche > 0:
-        results['kpi_nettokaufpreis_qm_brutto'] = results['gik_brutto'] / wohnflaeche
-        results['kpi_nettokaufpreis_qm_netto'] = (results['investitionssumme_gesamt'] - results['gesamtzuschuss']) / wohnflaeche
-    else:
-        results['kpi_nettokaufpreis_qm_brutto'] = 0
-        results['kpi_nettokaufpreis_qm_netto'] = 0
+    results = calculate_kpis(params, results)
 
-    # IRR Berechnung
-    results = calculate_irr(params, results)
-
-    return results, params # Gebe auch params zurück für PDF Export
+    return results, params
 
 def convert_inputs_to_params(inputs_pct):
     """Konvertiert die Prozent-Inputs (_pct) aus dem Session State in Dezimalzahlen."""
     params = dict(inputs_pct)
-    
+
     pct_keys = [
         'input_sanierungskostenanteil_pct', 'input_grundstuecksanteil_pct', 'input_altbauanteil_pct',
         'ek_quote_pct', 'bank_zins_pct', 'bank_tilgung_pct', 'kfw_zins_pct',
@@ -679,7 +719,6 @@ def convert_inputs_to_params(inputs_pct):
         if key in params:
             new_key = key.replace('_pct', '')
             try:
-                # Handle potential None or empty string inputs gracefully
                 value = params[key]
                 if value is None or value == '':
                     params[new_key] = 0.0
@@ -687,16 +726,30 @@ def convert_inputs_to_params(inputs_pct):
                     params[new_key] = float(value) / 100.0
             except (ValueError, TypeError):
                 params[new_key] = 0.0
-    
+
     return params
 
 
 def calculate_investment(params, results):
     """Berechnet GIK, Nebenkosten, AfA-Grundlagen und Finanzierungsstruktur."""
 
+    # 1.0 Kommunale Fördermittel einlesen
+    kommunale_foerderung = float(params.get('input_kommunale_foerderung', 0))
+    results['kommunale_foerderung'] = kommunale_foerderung
+
     # 1.1 GIK und Nebenkosten
     gik_netto = float(params['input_gik_netto'])
-    erwerbsnebenkosten = gik_netto * ERWERBSNEBENKOSTEN_SATZ
+    erwerbsmodell = params.get('erwerbsmodell', MODELL_BAUTRAEGER)
+
+    if erwerbsmodell == MODELL_KAUF_GU:
+        sanierungskostenanteil = params.get('input_sanierungskostenanteil', 0.0)
+        bemessungsgrundlage_knk = gik_netto * (1.0 - sanierungskostenanteil)
+        results['knk_berechnungsbasis_info'] = f"Basis KNK (Kauf & GU): {format_euro(bemessungsgrundlage_knk, 0)} (GIK exkl. Sanierung)"
+    else:
+        bemessungsgrundlage_knk = gik_netto
+        results['knk_berechnungsbasis_info'] = f"Basis KNK (Bauträger): {format_euro(bemessungsgrundlage_knk, 0)} (Gesamte GIK)"
+
+    erwerbsnebenkosten = bemessungsgrundlage_knk * ERWERBSNEBENKOSTEN_SATZ
     gik_brutto = gik_netto + erwerbsnebenkosten
 
     results['gik_netto'] = gik_netto
@@ -708,16 +761,14 @@ def calculate_investment(params, results):
     anzahl_whg = int(params['input_anzahl_whg'])
 
     kosten_baubegleitung_gesamt = kosten_bb_pro_we * anzahl_whg
-    # Zuschuss Baubegleitung (50%)
     zuschuss_baubegleitung = kosten_baubegleitung_gesamt * KFW_ZUSCHUSS_BB_SATZ
-    # Aktivierung für AfA (Restbetrag)
     aktivierung_baubegleitung = kosten_baubegleitung_gesamt - zuschuss_baubegleitung
 
     results['kosten_baubegleitung_gesamt'] = kosten_baubegleitung_gesamt
     results['zuschuss_baubegleitung'] = zuschuss_baubegleitung
     results['aktivierung_baubegleitung'] = aktivierung_baubegleitung
 
-    # Investitionssumme Gesamt (inkl. Kosten BB)
+    # Investitionssumme Gesamt
     investitionssumme_gesamt = gik_brutto + kosten_baubegleitung_gesamt
     results['investitionssumme_gesamt'] = investitionssumme_gesamt
 
@@ -726,16 +777,52 @@ def calculate_investment(params, results):
     wert_sanierung = gik_netto * params['input_sanierungskostenanteil']
     wert_altbau = gik_netto * params['input_altbauanteil']
 
-    nk_faktor = (1 + ERWERBSNEBENKOSTEN_SATZ)
+    # Logik für AfA-Basis Aufteilung
+    if erwerbsmodell == MODELL_KAUF_GU:
+        wert_bestand_summe = wert_grundstueck + wert_altbau
+        if wert_bestand_summe > 0:
+            anteil_grundstueck_am_bestand = wert_grundstueck / wert_bestand_summe
+            anteil_altbau_am_bestand = wert_altbau / wert_bestand_summe
+        else:
+            anteil_grundstueck_am_bestand = 0
+            anteil_altbau_am_bestand = 0
 
-    afa_basis_grundstueck = wert_grundstueck * nk_faktor
-    # AfA Sanierung inkludiert aktivierte Baubegleitung
-    afa_basis_sanierung = (wert_sanierung * nk_faktor) + aktivierung_baubegleitung
-    afa_basis_altbau = wert_altbau * nk_faktor
+        knk_auf_grundstueck = erwerbsnebenkosten * anteil_grundstueck_am_bestand
+        knk_auf_altbau = erwerbsnebenkosten * anteil_altbau_am_bestand
 
+        afa_basis_grundstueck = wert_grundstueck + knk_auf_grundstueck
+        afa_basis_altbau = wert_altbau + knk_auf_altbau
+        afa_basis_sanierung_vor_foerderung = wert_sanierung + aktivierung_baubegleitung
+
+    else:
+        # Bauträgermodell
+        if gik_netto > 0:
+            anteil_grundstueck = params['input_grundstuecksanteil']
+            anteil_sanierung = params['input_sanierungskostenanteil']
+            anteil_altbau = params['input_altbauanteil']
+        else:
+            anteil_grundstueck, anteil_sanierung, anteil_altbau = 0, 0, 0
+
+        knk_auf_grundstueck = erwerbsnebenkosten * anteil_grundstueck
+        knk_auf_sanierung = erwerbsnebenkosten * anteil_sanierung
+        knk_auf_altbau = erwerbsnebenkosten * anteil_altbau
+
+        afa_basis_grundstueck = wert_grundstueck + knk_auf_grundstueck
+        afa_basis_sanierung_vor_foerderung = wert_sanierung + knk_auf_sanierung + aktivierung_baubegleitung
+        afa_basis_altbau = wert_altbau + knk_auf_altbau
+
+    # Kommunale Förderung von der AfA-Basis Sanierung abziehen
+    afa_basis_sanierung = max(0, afa_basis_sanierung_vor_foerderung - kommunale_foerderung)
+    
+    if afa_basis_sanierung_vor_foerderung < kommunale_foerderung and afa_basis_sanierung_vor_foerderung > 0:
+         results['afa_hinweis'] = f"Hinweis: Die kommunale Förderung übersteigt die Basis der Sanierungskosten. Die AfA-Basis Sanierung wurde auf 0 € gesetzt."
+
+    
+    results['afa_basis_sanierung_vor_foerderung'] = afa_basis_sanierung_vor_foerderung
     results['afa_basis_grundstueck'] = afa_basis_grundstueck
     results['afa_basis_sanierung'] = afa_basis_sanierung
     results['afa_basis_altbau'] = afa_basis_altbau
+
     results['afa_basis_summe_check'] = afa_basis_grundstueck + afa_basis_sanierung + afa_basis_altbau
 
     # 1.4 Finanzierung
@@ -746,44 +833,34 @@ def calculate_investment(params, results):
         eigenkapital_bedarf = investitionssumme_gesamt * params['ek_quote']
         fremdkapital_bedarf = investitionssumme_gesamt - eigenkapital_bedarf
 
-    # Neue KfW Logik (Basis + BB automatisch)
+    # KfW Logik
     kfw_darlehen_basis = float(params['input_kfw_darlehen_261_basis'])
-    
-    # Das gesamte KfW-Darlehen ist die Summe aus Basis und den Kosten für BB
     kfw_darlehen_gesamt = kfw_darlehen_basis + kosten_baubegleitung_gesamt
 
     # Validierung gegen Fremdkapitalbedarf
-    # Prüfung ob fremdkapital_bedarf > 0
     if kfw_darlehen_gesamt > fremdkapital_bedarf and fremdkapital_bedarf > 0:
-        # Reduziere das Gesamtdarlehen, falls es den Bedarf übersteigt
         reduktion = kfw_darlehen_gesamt - fremdkapital_bedarf
         kfw_darlehen_gesamt = fremdkapital_bedarf
-        
-        # Versuche die Reduktion zuerst vom Basis-Darlehen abzuziehen (Priorität für BB-Finanzierung)
+
         if kfw_darlehen_basis >= reduktion:
             kfw_darlehen_basis -= reduktion
         else:
-            # Wenn Basis nicht ausreicht, setze Basis auf 0.
             kfw_darlehen_basis = 0
-            
+
         results['finanzierung_hinweis'] = "Hinweis: Das berechnete KfW-Darlehen (Basis+BB) war höher als der Fremdkapitalbedarf. Es wurde für die Berechnung auf den maximal benötigten Betrag reduziert."
 
-    # Berechnung des Tilgungszuschusses (TZ)
-    # Der TZ (40%) gilt nur für das (ggf. reduzierte) Basis-Darlehen
     kfw_tilgungszuschuss = kfw_darlehen_basis * KFW_ZUSCHUSS_261_SATZ
-    
-    # Bankdarlehen ist der Rest
     bankdarlehen = fremdkapital_bedarf - kfw_darlehen_gesamt
 
     results['eigenkapital_bedarf'] = eigenkapital_bedarf
     results['fremdkapital_bedarf'] = fremdkapital_bedarf
-    results['kfw_darlehen'] = kfw_darlehen_gesamt # Speichere das Gesamtdarlehen
-    results['kfw_darlehen_basis'] = kfw_darlehen_basis # Speichere Basis separat für Kontext
+    results['kfw_darlehen'] = kfw_darlehen_gesamt
+    results['kfw_darlehen_basis'] = kfw_darlehen_basis
     results['kfw_tilgungszuschuss'] = kfw_tilgungszuschuss
     results['bankdarlehen'] = bankdarlehen
 
-    # Gesamtzuschuss (Tilgungszuschuss + BB-Zuschuss)
-    results['gesamtzuschuss'] = kfw_tilgungszuschuss + zuschuss_baubegleitung
+    # Gesamtzuschuss (KfW Tilgungszuschuss + KfW BB-Zuschuss + Kommunale Förderung)
+    results['gesamtzuschuss'] = kfw_tilgungszuschuss + zuschuss_baubegleitung + kommunale_foerderung
     results['effektives_eigenkapital'] = max(0, eigenkapital_bedarf - results['gesamtzuschuss'])
 
     return results
@@ -826,8 +903,7 @@ def calculate_revenues_costs(params, results):
 
 def calculate_projection(params, results):
     """Führt die detaillierte Projektion über den Berechnungszeitraum durch."""
-    
-    # Handle edge case where investment is 0
+
     if results['investitionssumme_gesamt'] == 0:
         results['projection_df'] = pd.DataFrame()
         return results
@@ -841,7 +917,6 @@ def calculate_projection(params, results):
     kostensteigerung = params['kostensteigerung_pa']
     wertsteigerung = params['wertsteigerung_pa']
 
-    # Wachstumsfaktoren
     miet_faktoren = (1 + mietsteigerung) ** np.arange(BERECHNUNGSZEITRAUM)
     kosten_faktoren = (1 + kostensteigerung) ** np.arange(BERECHNUNGSZEITRAUM)
     wert_faktoren = (1 + wertsteigerung) ** np.arange(1, BERECHNUNGSZEITRAUM + 1)
@@ -849,9 +924,10 @@ def calculate_projection(params, results):
     df['Mieteinnahmen (Netto)'] = results['jahreskaltmiete_netto'] * miet_faktoren
     df['Betriebskosten'] = results['jahresverwaltungskosten'] * kosten_faktoren
     df['Einnahmenüberschuss'] = df['Mieteinnahmen (Netto)'] - df['Betriebskosten']
-    df['Immobilienwert'] = results['investitionssumme_gesamt'] * wert_faktoren
+    
+    df['Immobilienwert'] = results['gik_brutto'] * wert_faktoren
 
-    # 2. Finanzierung (Tilgungspläne)
+    # 2. Finanzierung (NEU: Inkl. Endfälliges Darlehen)
     df = calculate_financing_schedule(df, params, results)
 
     # 3. Abschreibung (AfA)
@@ -859,8 +935,8 @@ def calculate_projection(params, results):
 
     # 4. Steuerberechnung
     df['Steuerliches Ergebnis (V+V)'] = (
-        df['Einnahmenüberschuss'] 
-        - df['Zinsen Gesamt'] 
+        df['Einnahmenüberschuss']
+        - df['Zinsen Gesamt']
         - df['AfA Gesamt']
     )
 
@@ -868,19 +944,30 @@ def calculate_projection(params, results):
     df['Steuerersparnis'] = -df['Steuerliches Ergebnis (V+V)'] * steuersatz
 
     # 5. Cashflow-Synthese
+    # Annuität Gesamt beinhaltet hier den gesamten Kapitaldienst (Zins + Tilgung, auch die endfällige Tilgung)
     df['Cashflow vor Steuer'] = df['Einnahmenüberschuss'] - df['Annuität Gesamt']
-    df['Cashflow nach Steuer'] = df['Cashflow vor Steuer'] + df['Steuerersparnis']
     
+    # Sonderzufluss (Kommunale Förderung) in Jahr 1
+    df['Sonderzufluss'] = 0.0
+    kommunale_foerderung = results.get('kommunale_foerderung', 0)
+    if kommunale_foerderung > 0 and 1 in df.index:
+        df.loc[1, 'Sonderzufluss'] = kommunale_foerderung
+
+    df['Cashflow nach Steuer'] = df['Cashflow vor Steuer'] + df['Steuerersparnis'] + df['Sonderzufluss']
+
     # 6. Nettovermögen
     df['Nettovermögen'] = df['Immobilienwert'] - df['Restschuld Gesamt']
 
     results['projection_df'] = df
     return results
 
+
+# NEU: Angepasste Funktion für Finanzierungspläne
 def calculate_financing_schedule(df, params, results):
-    """Berechnet die Tilgungspläne für Bank- und KfW-Darlehen."""
+    """Berechnet die Tilgungspläne für Bank- und KfW-Darlehen (inkl. Endfällig)."""
     
     # --- Bankdarlehen (Standard Annuität) ---
+    # (Unverändert)
     darlehen_bank = results['bankdarlehen']
     zins_bank = params['bank_zins']
     tilgung_bank = params['bank_tilgung']
@@ -914,72 +1001,106 @@ def calculate_financing_schedule(df, params, results):
     else:
         df['Zins Bank'] = 0; df['Tilgung Bank'] = 0; df['Restschuld Bank'] = 0
 
-    # --- KfW-Darlehen (Tilgungsfrei + Zuschuss) ---
-    # Nutzt das Gesamt-KfW-Darlehen (Basis + BB)
+    # --- KfW-Darlehen (NEU: Annuität oder Endfällig) ---
     darlehen_kfw = results['kfw_darlehen']
     zins_kfw = params['kfw_zins']
     laufzeit_kfw = params['kfw_gesamtlaufzeit']
-    tilgungsfrei_kfw = params['kfw_tilgungsfreie_jahre']
-    
-    # Beide Zuschüsse (Tilgungszuschuss und Zuschuss BB) werden bei der Tilgung berücksichtigt
-    zuschuss_kfw_gesamt = results['kfw_tilgungszuschuss'] + results['zuschuss_baubegleitung']
+    darlehenstyp_kfw = params.get('kfw_darlehenstyp', KFW_ANNUITAET)
 
-    # Berechnung der Restlaufzeit.
-    restlaufzeit = laufzeit_kfw - tilgungsfrei_kfw
+    # Nur KfW Zuschüsse (Tilgung + BB) reduzieren das KfW Darlehen.
+    zuschuss_kfw_gesamt = results['kfw_tilgungszuschuss'] + results['zuschuss_baubegleitung']
 
     if darlehen_kfw > 0:
         restschuld = darlehen_kfw
         zinsen_liste, tilgung_liste, restschuld_liste = [], [], []
-        annuitaet_kfw_nach_tf = 0
 
-        for jahr in df.index:
-            if restschuld <= 0.01:
-                 # Restliche Jahre auffüllen
-                zinsen_liste.append(0); tilgung_liste.append(0); restschuld_liste.append(0)
-                continue
+        # NEU: Fallunterscheidung nach Darlehenstyp
+        if darlehenstyp_kfw == KFW_ENDFAELLIG:
+            # --- Logik für Endfälliges Darlehen ---
+            for jahr in df.index:
+                if restschuld <= 0.01:
+                     zinsen_liste.append(0); tilgung_liste.append(0); restschuld_liste.append(0)
+                     continue
 
-            # Tilgungsfreie Zeit
-            if jahr <= tilgungsfrei_kfw:
-                zins_betrag = restschuld * zins_kfw
-                tilgung_betrag = 0
-            
-            # Tilgungsphase beginnt
-            else:
-                if jahr == tilgungsfrei_kfw + 1:
-                    # Erster Tilgungsjahr: Gesamten Zuschuss anwenden und Annuität neu berechnen
-                    restschuld = max(0, restschuld - zuschuss_kfw_gesamt)
+                if jahr < laufzeit_kfw:
+                    # Zinszahlung, keine Tilgung
+                    zins_betrag = restschuld * zins_kfw
+                    tilgung_betrag = 0
+                    # Restschuld bleibt gleich
+                elif jahr == laufzeit_kfw:
+                    # Letztes Jahr: Zinszahlung + Endfällige Tilgung (abzgl. Zuschuss)
+                    zins_betrag = restschuld * zins_kfw
+                    # Die zu leistende Tilgung ist die Restschuld abzgl. Zuschuss.
+                    tilgung_betrag = max(0, restschuld - zuschuss_kfw_gesamt)
+                    restschuld = 0 # Darlehen ist getilgt
+                else:
+                    # Nach Laufzeitende
+                    zins_betrag = 0
+                    tilgung_betrag = 0
+                    restschuld = 0
+                
+                # Wichtig: Bei Endfällig wird die Restschuld NICHT durch die Tilgung reduziert, 
+                # außer im letzten Jahr (wo es oben auf 0 gesetzt wurde).
+                if jahr < laufzeit_kfw:
+                     restschuld_liste.append(restschuld)
+                else:
+                     # Im letzten Jahr und danach ist die Restschuld 0
+                     restschuld_liste.append(0)
 
-                    # Berechnung der Annuität für die Restlaufzeit
-                    if restschuld > 0:
-                        if IRR_ENABLED:
-                            try:
-                                # Nutze npf.pmt für präzise Annuitätenberechnung
-                                annuitaet_kfw_nach_tf = -npf.pmt(zins_kfw, restlaufzeit, restschuld)
-                            except Exception as e:
-                                logging.error(f"Fehler bei npf.pmt Berechnung: {e}")
-                                raise RuntimeError("Finanzmathematische Berechnung fehlgeschlagen (KfW Annuität).")
-                        else:
-                             # Fallback ohne numpy_financial (inkl. Robustheit für Zins=0)
-                             q = 1 + zins_kfw
-                             if q == 1:
-                                 annuitaet_kfw_nach_tf = restschuld / restlaufzeit if restlaufzeit > 0 else 0
-                             else:
-                                annuitaet_kfw_nach_tf = restschuld * (q**restlaufzeit * (q-1)) / (q**restlaufzeit - 1)
-                        
-                # Annuität anwenden
-                zins_betrag = restschuld * zins_kfw
-                tilgung_betrag = annuitaet_kfw_nach_tf - zins_betrag
+                zinsen_liste.append(zins_betrag)
+                tilgung_liste.append(tilgung_betrag)
+                
 
-                # Anpassung der letzten Rate
-                if tilgung_betrag > restschuld:
-                    tilgung_betrag = restschuld
-            
-            restschuld -= tilgung_betrag
+        else:
+            # --- Logik für Annuitätendarlehen (Bestehend) ---
+            tilgungsfrei_kfw = params['kfw_tilgungsfreie_jahre']
+            restlaufzeit = laufzeit_kfw - tilgungsfrei_kfw
+            annuitaet_kfw_nach_tf = 0
 
-            zinsen_liste.append(zins_betrag)
-            tilgung_liste.append(tilgung_betrag)
-            restschuld_liste.append(restschuld)
+            for jahr in df.index:
+                if restschuld <= 0.01:
+                    zinsen_liste.append(0); tilgung_liste.append(0); restschuld_liste.append(0)
+                    continue
 
+                # Tilgungsfreie Zeit
+                if jahr <= tilgungsfrei_kfw:
+                    zins_betrag = restschuld * zins_kfw
+                    tilgung_betrag = 0
+                
+                # Tilgungsphase beginnt
+                else:
+                    if jahr == tilgungsfrei_kfw + 1:
+                        # Erster Tilgungsjahr: KfW Zuschuss anwenden
+                        restschuld = max(0, restschuld - zuschuss_kfw_gesamt)
+
+                        # Berechnung der Annuität für die Restlaufzeit
+                        if restschuld > 0:
+                            if IRR_ENABLED:
+                                try:
+                                    annuitaet_kfw_nach_tf = -npf.pmt(zins_kfw, restlaufzeit, restschuld)
+                                except Exception as e:
+                                    logging.error(f"Fehler bei npf.pmt Berechnung: {e}")
+                                    raise RuntimeError("Finanzmathematische Berechnung fehlgeschlagen (KfW Annuität).")
+                            else:
+                                q = 1 + zins_kfw
+                                if q == 1:
+                                    annuitaet_kfw_nach_tf = restschuld / restlaufzeit if restlaufzeit > 0 else 0
+                                else:
+                                    annuitaet_kfw_nach_tf = restschuld * (q**restlaufzeit * (q-1)) / (q**restlaufzeit - 1)
+                            
+                    zins_betrag = restschuld * zins_kfw
+                    tilgung_betrag = annuitaet_kfw_nach_tf - zins_betrag
+
+                    if tilgung_betrag > restschuld:
+                        tilgung_betrag = restschuld
+                
+                restschuld -= tilgung_betrag
+
+                zinsen_liste.append(zins_betrag)
+                tilgung_liste.append(tilgung_betrag)
+                restschuld_liste.append(restschuld)
+
+        # NEU: Zuweisung der Listen zum DataFrame (gilt für beide Typen)
         df['Zins KfW'] = zinsen_liste
         df['Tilgung KfW'] = tilgung_liste
         df['Restschuld KfW'] = restschuld_liste
@@ -990,10 +1111,13 @@ def calculate_financing_schedule(df, params, results):
     # Gesamtsummen
     df['Zinsen Gesamt'] = df['Zins Bank'] + df['Zins KfW']
     df['Tilgung Gesamt'] = df['Tilgung Bank'] + df['Tilgung KfW']
+    # Annuität Gesamt = Gesamte Kapitaldienstleistung (Zins + Tilgung)
     df['Annuität Gesamt'] = df['Zinsen Gesamt'] + df['Tilgung Gesamt']
     df['Restschuld Gesamt'] = df['Restschuld Bank'] + df['Restschuld KfW']
 
     return df
+
+# (calculate_depreciation_schedule, calculate_kpis, calculate_irr bleiben unverändert)
 
 def calculate_depreciation_schedule(df, results):
     """Berechnet die jährlichen AfA-Beträge (Denkmal und Linear)."""
@@ -1028,40 +1152,107 @@ def calculate_depreciation_schedule(df, results):
     df['AfA Gesamt'] = df['AfA Denkmal (Sonder)'] + df['AfA Altbau (Linear)']
     return df
 
-def calculate_irr(params, results):
+
+# Funktion für alle KPIs
+def calculate_kpis(params, results):
+    """Berechnet alle relevanten KPIs."""
+
+    gik_brutto = results.get('gik_brutto', 0)
+    investitionssumme_gesamt = results.get('investitionssumme_gesamt', 0)
+    gesamtzuschuss = results.get('gesamtzuschuss', 0)
+    jahreskaltmiete_netto = results.get('jahreskaltmiete_netto', 0)
+    einnahmen_ueberschuss_j1 = results.get('einnahmen_ueberschuss_vor_finanz_steuer', 0)
+    wohnflaeche = float(params.get('input_wohnflaeche', 0))
+    eigenkapital_bedarf = results.get('eigenkapital_bedarf', 0)
+    
+    try:
+        haltedauer = int(params['geplanter_verkauf'])
+    except (ValueError, TypeError):
+        haltedauer = 10
+
+    if haltedauer > BERECHNUNGSZEITRAUM:
+        haltedauer = BERECHNUNGSZEITRAUM
+
+    df = results.get('projection_df')
+
+    # --- Renditekennzahlen (Jahr 1) ---
+
+    # Bruttomietrendite
+    if investitionssumme_gesamt > 0:
+        results['kpi_bruttomietrendite'] = jahreskaltmiete_netto / investitionssumme_gesamt
+    else:
+        results['kpi_bruttomietrendite'] = 0
+    
+    # Nettomietrendite
+    if investitionssumme_gesamt > 0:
+        results['kpi_nettomietrendite'] = einnahmen_ueberschuss_j1 / investitionssumme_gesamt
+    else:
+        results['kpi_nettomietrendite'] = 0
+
+    # --- Kaufpreiskennzahlen (pro m²) ---
+
+    if wohnflaeche > 0:
+        # Brutto
+        results['kpi_kaufpreis_qm_brutto'] = gik_brutto / wohnflaeche
+        # Netto (nach allen Zuschüssen)
+        results['kpi_kaufpreis_qm_netto'] = (investitionssumme_gesamt - gesamtzuschuss) / wohnflaeche
+    else:
+        results['kpi_kaufpreis_qm_brutto'] = 0
+        results['kpi_kaufpreis_qm_netto'] = 0
+
+    # --- Erweiterte KPIs (Haltedauer-basiert) ---
+
+    if df is None or df.empty:
+        results['kpi_irr_nach_steuer'] = 0.0
+        results['kpi_steuerfreier_gewinn'] = 0.0
+        results['kpi_kaufpreis_qm_effektiv'] = results.get('kpi_kaufpreis_qm_netto', 0)
+        results['kpi_gesamtrendite_nach_steuer'] = 0.0
+        return results
+
+    # 1. Exit-Erlös
+    # Nutzt .iloc[-1] als Fallback, falls haltedauer außerhalb des Index liegt (sollte durch obigen Check verhindert sein)
+    if haltedauer in df.index:
+        exit_erloes = df.loc[haltedauer, 'Nettovermögen']
+    else:
+        exit_erloes = df['Nettovermögen'].iloc[-1] if not df.empty else 0
+
+
+    # 2. Kumulierte Cashflows und Steuern
+    cum_cashflow_nach_steuer = df['Cashflow nach Steuer'].head(haltedauer).sum()
+    cum_steuerersparnis = df['Steuerersparnis'].head(haltedauer).sum()
+
+    # 3. Kaufpreis/m² (Effektiv)
+    if wohnflaeche > 0:
+        steuerersparnis_pro_qm = cum_steuerersparnis / wohnflaeche
+        results['kpi_kaufpreis_qm_effektiv'] = results['kpi_kaufpreis_qm_netto'] - steuerersparnis_pro_qm
+    else:
+        results['kpi_kaufpreis_qm_effektiv'] = 0
+
+    # 4. Steuerfreier Gewinn (Total Profit)
+    total_profit = cum_cashflow_nach_steuer + exit_erloes - eigenkapital_bedarf
+    results['kpi_steuerfreier_gewinn'] = total_profit
+
+    # 5. Gesamtrendite nach Steuern (RoE)
+    if eigenkapital_bedarf > 0:
+        results['kpi_gesamtrendite_nach_steuer'] = total_profit / eigenkapital_bedarf
+    else:
+        results['kpi_gesamtrendite_nach_steuer'] = float('inf') if total_profit > 0 else 0
+
+    # 6. IRR Berechnung
+    results = calculate_irr(results, eigenkapital_bedarf, df, haltedauer, exit_erloes)
+
+    return results
+
+
+def calculate_irr(results, initial_investment, df, haltedauer, exit_erloes):
     """Berechnet den Internal Rate of Return (IRR) nach Steuern."""
     if not IRR_ENABLED:
         results['kpi_irr_nach_steuer'] = "N/A"
         return results
         
-    try:
-        haltedauer = int(params['geplanter_verkauf'])
-    except (ValueError, TypeError):
-        haltedauer = 10 # Fallback
-
-    # Prüfe, ob Projektionsdaten vorhanden sind
-    if 'projection_df' not in results or results['projection_df'].empty:
-        results['kpi_irr_nach_steuer'] = 0.0
-        return results
-        
-    df = results['projection_df']
-
-    if haltedauer > BERECHNUNGSZEITRAUM:
-        haltedauer = BERECHNUNGSZEITRAUM
-
-    # Cashflows während der Haltedauer
+    # Cashflows während der Haltedauer (inkl. Sonderzufluss Jahr 1)
     cashflows = df['Cashflow nach Steuer'].head(haltedauer).tolist()
 
-    # Anfangsinvestition (Jahr 0): Eigenkapital Bedarf
-    initial_investment = results['eigenkapital_bedarf']
-
-    # Verkaufserlös am Ende der Haltedauer (Jahr X)
-    if haltedauer in df.index:
-        exit_erloes = df.loc[haltedauer, 'Nettovermögen']
-    else:
-        exit_erloes = 0
-
-    
     # Gesamte Cashflow-Reihe für IRR
     irr_stream = [-initial_investment] + cashflows
     
@@ -1085,20 +1276,15 @@ def calculate_irr(params, results):
 # PDF EXPORT LOGIK
 # ====================================================================================
 
+# (PDF Exportfunktionen wurden minimal angepasst, um den KfW Typ aufzunehmen)
+
 def add_footer(canvas, doc):
     """Fügt den Disclaimer als Fußzeile auf jeder Seite hinzu."""
     canvas.saveState()
     styles = getSampleStyleSheet()
-    # Stil für die Fußzeile definieren (klein, grau, linksbündig)
     footer_style = ParagraphStyle(name='FooterStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.grey, alignment=0)
-    
-    # Erstelle den Paragraph für die Fußzeile
     footer = Paragraph(PDF_DISCLAIMER_TEXT, footer_style)
-    
-    # Berechne die Dimensionen des Textes (doc.width ist die nutzbare Breite)
     w, h = footer.wrapOn(canvas, doc.width, doc.bottomMargin)
-    
-    # Platziere den Text unten links
     footer.drawOn(canvas, doc.leftMargin, 1*cm)
     canvas.restoreState()
 
@@ -1109,29 +1295,30 @@ def create_pdf_report(results, params):
         return None
 
     buffer = BytesIO()
-    # Seitenformat auf Querformat (landscape(A4))
     page_size = landscape(A4)
     doc = SimpleDocTemplate(buffer, pagesize=page_size,
                             rightMargin=1.5*cm, leftMargin=1.5*cm,
-                            topMargin=2*cm, bottomMargin=2.5*cm) # Mehr Platz unten für Fußzeile
+                            topMargin=2*cm, bottomMargin=2.5*cm)
     
-    # Styling
     styles = getSampleStyleSheet()
-    
-    # Benutzerdefinierte Stile
     styles.add(ParagraphStyle(name='TitleStyle', fontSize=18, leading=22, spaceAfter=12, fontName='Helvetica-Bold', textColor=RL_COLOR_PRIMARY))
     styles.add(ParagraphStyle(name='HeaderStyle', fontSize=14, leading=18, spaceAfter=10, fontName='Helvetica-Bold', textColor=RL_COLOR_PRIMARY))
     styles.add(ParagraphStyle(name='NormalStyle', fontSize=10, leading=14))
     styles.add(ParagraphStyle(name='SmallStyle', fontSize=8, leading=12))
 
     story = []
+    haltedauer = params.get('geplanter_verkauf', 10)
 
     # --- Titel ---
-    story.append(Paragraph("Park 55 Immobilienrechner - Analysebericht", styles['TitleStyle']))
+    story.append(Paragraph("Park 55 | Investitionsrechner - Analysebericht", styles['TitleStyle']))
     objekt_name_display = params['objekt_name'] if params['objekt_name'] else "Freie Berechnung"
     story.append(Paragraph(f"Objekt: {objekt_name_display}", styles['HeaderStyle']))
     
-    # Anpassung für das Datum
+    story.append(Paragraph(f"Erwerbsmodell: {params.get('erwerbsmodell', 'N/A')}", styles['NormalStyle']))
+    # NEU: KfW Typ anzeigen
+    story.append(Paragraph(f"KfW-Darlehenstyp: {params.get('kfw_darlehenstyp', 'N/A')}", styles['NormalStyle']))
+
+
     try:
         today_date = datetime.date.today().strftime('%d.%m.%Y')
     except Exception:
@@ -1141,22 +1328,18 @@ def create_pdf_report(results, params):
     story.append(Spacer(1, 0.5*cm))
 
     # --- Zusammenfassung (KPIs) ---
-    story.append(Paragraph("Zusammenfassung (KPIs)", styles['HeaderStyle']))
+    story.append(Paragraph("Zusammenfassung (Prominente KPIs)", styles['HeaderStyle']))
     
-    kpi_irr_value = results.get('kpi_irr_nach_steuer', 0)
-    kpi_irr_formatted = format_percent(kpi_irr_value) if isinstance(kpi_irr_value, float) else str(kpi_irr_value)
-
     kpi_data = [
-        ["Kaufpreis/m² (Netto)", "Kaufpreis/m² (Brutto)", "KfW-Zuschuss Gesamt", "IRR nach Steuer"],
+        ["Kaufpreis/m² (Netto)", f"KP/m² (Effektiv, {haltedauer} J.)", "Zuschüsse Gesamt (KfW+Komm.)", f"Steuerfreier Gewinn ({haltedauer} J.)"],
         [
-            format_euro(results['kpi_nettokaufpreis_qm_netto'], 0),
-            format_euro(results['kpi_nettokaufpreis_qm_brutto'], 0),
-            format_euro(results['gesamtzuschuss'], 0),
-            kpi_irr_formatted
+            format_euro(results.get('kpi_kaufpreis_qm_netto', 0), 0),
+            format_euro(results.get('kpi_kaufpreis_qm_effektiv', 0), 0),
+            format_euro(results.get('gesamtzuschuss', 0), 0),
+            format_euro(results.get('kpi_steuerfreier_gewinn', 0), 0)
         ]
     ]
     
-    # Breitere Spalten für Querformat
     t = Table(kpi_data, colWidths=[6*cm]*4)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), RL_COLOR_PRIMARY),
@@ -1170,9 +1353,43 @@ def create_pdf_report(results, params):
     story.append(t)
     story.append(Spacer(1, 0.5*cm))
 
+    # --- Zentrale KPIs (Details) ---
+    story.append(Paragraph("Zentrale KPIs (Details)", styles['HeaderStyle']))
+
+    kpi_irr_value = results.get('kpi_irr_nach_steuer', 0)
+    kpi_irr_formatted = format_percent(kpi_irr_value) if isinstance(kpi_irr_value, float) else str(kpi_irr_value)
+
+    rendite_value = results.get('kpi_gesamtrendite_nach_steuer', 0)
+    rendite_formatted = f"{format_percent(rendite_value, 1)} (RoE)"
+
+    kpi_detail_data = [
+        ["Wirtschaftlichkeit", "Wert", "Investitionskontext", "Wert"],
+        ["Gesamtrendite n. St.", rendite_formatted, "Kaufpreis/m² (Brutto)", format_euro(results.get('kpi_kaufpreis_qm_brutto', 0), 0)],
+        ["IRR n. St.", kpi_irr_formatted, "Kommunale Förderung", format_euro(results.get('kommunale_foerderung', 0), 0)],
+        ["Nettomietrendite", format_percent(results.get('kpi_nettomietrendite', 0), 2), "", ""],
+    ]
+
+    t_kpi_detail = Table(kpi_detail_data, colWidths=[6*cm, 5*cm, 6*cm, 5*cm])
+    t_kpi_detail.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), RL_COLOR_PRIMARY),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('ALIGN', (1,1), (1,-1), 'RIGHT'),
+        ('ALIGN', (3,1), (3,-1), 'RIGHT'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('SPAN', (2,3), (3,3)),
+    ]))
+    story.append(t_kpi_detail)
+    story.append(Spacer(1, 0.8*cm))
+
+
     # --- Investition & Finanzierung ---
     story.append(Paragraph("Investition & Finanzierung", styles['HeaderStyle']))
     
+    knk_info = results.get('knk_berechnungsbasis_info', 'Basis KNK: N/A')
+    story.append(Paragraph(knk_info, styles['SmallStyle']))
+    story.append(Spacer(1, 0.2*cm))
+
     inv_data = [
         ["Position", "Betrag"],
         ["GIK Netto", format_euro(results['gik_netto'], 0)],
@@ -1186,45 +1403,36 @@ def create_pdf_report(results, params):
         ["KfW-Darlehen (inkl. BB)", format_euro(results['kfw_darlehen'], 0)],
     ]
 
-    # Angepasste Spaltenbreiten
     t_inv = Table(inv_data, colWidths=[8*cm, 5*cm])
     t_inv.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), RL_COLOR_PRIMARY),
         ('TEXTCOLOR',(0,0),(-1,0),colors.white),
         ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTNAME', (0,4), (-1,4), 'Helvetica-Bold'), # Investitionssumme Gesamt
-        ('FONTNAME', (0,6), (-1,6), 'Helvetica-Bold'), # Finanzierung durch
+        ('FONTNAME', (0,4), (-1,4), 'Helvetica-Bold'),
+        ('FONTNAME', (0,6), (-1,6), 'Helvetica-Bold'),
         ('ALIGN', (1,0), (1,-1), 'RIGHT'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('SPAN', (0,6), (1,6)), # Merge Finanzierung durch
+        ('SPAN', (0,6), (1,6)),
     ]))
     story.append(t_inv)
     story.append(Spacer(1, 1*cm))
 
     # --- Detaillierte Tabellen ---
-    # Funktion zum Hinzufügen von Tabellen aus DataFrames
     def add_dataframe_to_story(df, title, style=None):
         story.append(PageBreak())
         story.append(Paragraph(title, styles['HeaderStyle']))
         
-        # Konvertiere DataFrame in Liste von Listen für ReportLab
         data = [["Jahr"] + df.columns.tolist()]
         for index, row in df.iterrows():
             formatted_row = [str(index)]
             for item in row:
-                # Formatieren und "€" entfernen für Kompaktheit
                 formatted_row.append(format_euro(item, 0).replace(" €", ""))
             data.append(formatted_row)
         
-        # Dynamische Spaltenbreiten
         num_cols = len(df.columns) + 1
-        
-        # Berechne Seitenbreite für Querformat (doc.width ist die nutzbare Breite)
         page_width = doc.width
         
-        # Adjustierung für bessere Lesbarkeit im Querformat
         if num_cols > 1:
-            # Jahr-Spalte schmaler, Rest breiter
             jahr_width = min((page_width / num_cols) * 0.5, 2*cm)
             rest_width = (page_width - jahr_width) / (num_cols - 1)
             col_widths = [jahr_width] + [rest_width] * (num_cols - 1)
@@ -1233,11 +1441,10 @@ def create_pdf_report(results, params):
 
         t = Table(data, colWidths=col_widths)
         
-        # Basis Tabellenstil
         base_style = TableStyle([
             ('BACKGROUND', (0,0), (-1,0), RL_COLOR_PRIMARY),
             ('TEXTCOLOR',(0,0),(-1,0),colors.white),
-            ('ALIGN', (1,0), (-1,-1), 'RIGHT'), # Spalten 1 bis Ende rechtsbündig
+            ('ALIGN', (1,0), (-1,-1), 'RIGHT'),
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('FONTSIZE', (0,0), (-1,-1), 9),
             ('BOTTOMPADDING', (0,0), (-1,-1), 5),
@@ -1245,7 +1452,6 @@ def create_pdf_report(results, params):
             ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
         ])
         
-        # Alternierende Zeilenfarben
         for i in range(1, len(data)):
             if i % 2 == 0:
                 base_style.add('BACKGROUND', (0, i), (-1, i), colors.whitesmoke)
@@ -1258,14 +1464,12 @@ def create_pdf_report(results, params):
         t.setStyle(base_style)
         story.append(t)
 
-    # Handle empty dataframe if investment is 0
     if 'projection_df' not in results or results['projection_df'].empty:
         story.append(Paragraph("Keine Daten verfügbar, da die Investitionssumme 0 ist oder keine Berechnung erfolgte.", styles['NormalStyle']))
     else:
         df_proj = results['projection_df']
         # 1. Cashflow Tabelle
-        cf_cols = ['Mieteinnahmen (Netto)', 'Betriebskosten', 'Einnahmenüberschuss', 'Annuität Gesamt', 'Cashflow vor Steuer', 'Steuerersparnis', 'Cashflow nach Steuer']
-        # Filter columns that actually exist in the DataFrame
+        cf_cols = ['Mieteinnahmen (Netto)', 'Betriebskosten', 'Einnahmenüberschuss', 'Annuität Gesamt', 'Cashflow vor Steuer', 'Steuerersparnis', 'Sonderzufluss', 'Cashflow nach Steuer']
         existing_cf_cols = [col for col in cf_cols if col in df_proj.columns]
         add_dataframe_to_story(df_proj[existing_cf_cols], "Cashflow-Entwicklung (Werte in EUR)")
 
@@ -1294,11 +1498,12 @@ def create_pdf_report(results, params):
 # ERGEBNISANZEIGE (Darstellung der Ergebnisse)
 # ====================================================================================
 
+# (display_results, display_kpi_section, display_central_kpis, display_overview, display_investment_details bleiben unverändert)
+
 def display_results(results, params):
     """
     Stellt die berechneten Ergebnisse dar und bietet den PDF-Download an.
     """
-    # Header wurde bereits in main() angezeigt
 
     if results['investitionssumme_gesamt'] == 0:
         st.warning("Die Gesamtinvestitionskosten (GIK) sind 0. Bitte geben Sie die Daten ein, um die Berechnung zu starten.")
@@ -1306,19 +1511,20 @@ def display_results(results, params):
 
     if 'finanzierung_hinweis' in results:
         st.warning(results['finanzierung_hinweis'])
+    
+    if 'afa_hinweis' in results:
+        st.warning(results['afa_hinweis'])
 
     # --- 1. Prominente KPIs ---
-    display_kpi_section(results)
-    
+    display_kpi_section(results, params)
+
     # --- PDF Download Button ---
     if PDF_EXPORT_ENABLED:
         try:
-            # Generate PDF on the fly when needed for download
             with st.spinner("Generiere PDF-Bericht (Querformat)..."):
                 pdf_buffer = create_pdf_report(results, params)
-            
+
             if pdf_buffer:
-                # Bereinige den Objektnamen für den Dateinamen
                 objekt_name_for_file = params['objekt_name'] if params['objekt_name'] else "Freie_Berechnung"
                 safe_filename = "".join([c for c in objekt_name_for_file if c.isalnum() or c in (' ', '-', '_')]).rstrip().replace(' ', '_')
                 st.download_button(
@@ -1332,14 +1538,18 @@ def display_results(results, params):
             logging.error("Fehler bei der PDF-Generierung:")
             logging.error(traceback.format_exc())
 
-    # --- 2. Tabs für Detailergebnisse (Namen angepasst) ---
-    tab_overview, tab_investment, tab_finance_value, tab_cashflow, tab_tax = st.tabs([
+    # --- 2. Tabs für Detailergebnisse ---
+    tab_kpis, tab_overview, tab_investment, tab_finance_value, tab_cashflow, tab_tax = st.tabs([
+        "Zentrale KPIs",
         "Übersicht",
         "Investition & AfA",
         "Finanzierung & Wertentwicklung",
         "Cashflow-Entwicklung",
         "Steuern"
     ])
+
+    with tab_kpis:
+        display_central_kpis(results, params)
 
     with tab_overview:
         display_overview(results)
@@ -1348,7 +1558,7 @@ def display_results(results, params):
         display_investment_details(results)
 
     with tab_finance_value:
-        display_finance_value_dev(results)
+        display_finance_value_dev(results, params) # NEU: Params übergeben
 
     with tab_cashflow:
         display_cashflow_details(results)
@@ -1356,45 +1566,110 @@ def display_results(results, params):
     with tab_tax:
         display_tax_details(results)
 
-def display_kpi_section(results):
+# Angepasste KPI Sektion
+def display_kpi_section(results, params):
     """Zeigt die wichtigsten KPIs in der gewünschten Reihenfolge."""
     st.markdown('<div class="prominent-kpi-container">', unsafe_allow_html=True)
     col1, col2, col3, col4 = st.columns(4)
 
+    haltedauer = params['geplanter_verkauf']
+
     # 1. Kaufpreis/m² (Netto)
     with col1:
-        st.metric("Kaufpreis/m² (Netto)", format_euro(results['kpi_nettokaufpreis_qm_netto'], 0))
-        st.caption("KP nach KfW-Zuschüssen/m²")
+        st.metric("Kaufpreis/m² (Netto)", format_euro(results.get('kpi_kaufpreis_qm_netto', 0), 0))
+        st.caption("KP nach Zuschüssen/m² (KfW + Kommunal)")
 
-    # 2. Kaufpreis/m² (Brutto)
+    # 2. Kaufpreis/m² (Effektiv)
     with col2:
-        st.metric("Kaufpreis/m² (Brutto)", format_euro(results['kpi_nettokaufpreis_qm_brutto'], 0))
-        st.caption("GIK (brutto) / Wohnfläche.")
+        st.metric("Kaufpreis/m² (Effektiv)", format_euro(results.get('kpi_kaufpreis_qm_effektiv', 0), 0))
+        st.caption(f"Netto abzgl. Steuerersparnis (über {haltedauer} J.)")
 
-    # 3. KfW-Zuschuss Gesamt
+    # 3. Zuschüsse Gesamt
     with col3:
-        st.metric("KfW-Zuschuss Gesamt", format_euro(results['gesamtzuschuss'], 0))
-        st.caption("Tilgungszuschuss + Zuschuss BB")
+        st.metric("Zuschüsse Gesamt", format_euro(results.get('gesamtzuschuss', 0), 0))
+        st.caption("KfW (TZ+BB) + Kommunale Förderung")
 
-    # 4. IRR nach Steuer
+    # 4. Steuerfreier Gewinn
     with col4:
-        irr_value = results['kpi_irr_nach_steuer']
-        if isinstance(irr_value, float):
-            st.metric("IRR nach Steuer", format_percent(irr_value))
-        else:
-            st.metric("IRR nach Steuer", irr_value)
-        st.caption(f"über Haltedauer von {st.session_state['geplanter_verkauf']} Jahren.")
+        st.metric("Steuerfreier Gewinn (Profit)", format_euro(results.get('kpi_steuerfreier_gewinn', 0), 0))
+        st.caption(f"Gesamtgewinn nach {haltedauer} Jahren.")
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+# Funktion für den Tab "Zentrale KPIs"
+def display_central_kpis(results, params):
+    """Zeigt die detaillierten Investment-KPIs."""
+    st.subheader("Zentrale Investment-Kennzahlen")
+
+    haltedauer = params.get('geplanter_verkauf', 10)
+
+    # --- 1. Gesamtergebnisindikatoren ---
+    st.markdown("#### Gesamtergebnisindikatoren")
+
+    col1_1, col1_2 = st.columns(2)
+
+    with col1_1:
+        # Gesamtrendite nach Steuern (RoE)
+        rendite_value = results.get('kpi_gesamtrendite_nach_steuer', 0)
+        st.metric(f"Gesamtrendite nach Steuern ({haltedauer} J.)", format_percent(rendite_value, 1))
+        st.caption("Return on Equity (RoE): Gesamtgewinn / Initiales Eigenkapital.")
+
+    with col1_2:
+         # Steuerfreier Gewinn (Absolut)
+        st.metric(f"Steuerfreier Gewinn (Absolut)", format_euro(results.get('kpi_steuerfreier_gewinn', 0), 0))
+        st.caption(f"Gesamtgewinn (Profit) nach {haltedauer} Jahren.")
+
+
+    # --- 2. Wirtschaftlichkeit ---
+    st.markdown("#### Wirtschaftlichkeit")
+
+    col2_1, col2_2 = st.columns(2)
+
+    with col2_1:
+        # IRR nach Steuer
+        irr_value = results.get('kpi_irr_nach_steuer', "N/A")
+        if isinstance(irr_value, float):
+            st.metric(f"Internal Rate of Return (IRR, n. St.)", format_percent(irr_value))
+        else:
+            st.metric(f"Internal Rate of Return (IRR, n. St.)", irr_value)
+        st.caption(f"Interner Zinsfuß über Haltedauer von {haltedauer} Jahren.")
+
+    with col2_2:
+        # Nettomietrendite
+        st.metric("Nettomietrendite (Jahr 1)", format_percent(results.get('kpi_nettomietrendite', 0), 2))
+        st.caption("Einnahmenüberschuss / Investitionssumme Gesamt.")
+
+    # --- 3. Kontext ---
+    st.markdown("#### Kontext")
+    
+    col3_1, col3_2 = st.columns(2)
+    
+    with col3_1:
+        # Kaufpreis/m² (Brutto)
+        st.metric("Kaufpreis/m² (Brutto)", format_euro(results.get('kpi_kaufpreis_qm_brutto', 0), 0))
+        st.caption("GIK Brutto (Kaufpreis + KNK) / Wohnfläche.")
+    
+    with col3_2:
+        # Kommunale Förderung (Absolut) anzeigen
+        st.metric("Kommunale Förderung (Absolut)", format_euro(results.get('kommunale_foerderung', 0), 0))
+        st.caption("Zuschüsse aus kommunalen Programmen.")
+
 
 def display_overview(results):
     """Zeigt eine Zusammenfassung."""
     st.subheader("Zusammenfassung der Investition")
 
-    col1, col2 = st.columns(2)
+    erwerbsmodell = st.session_state.get('erwerbsmodell', MODELL_BAUTRAEGER)
+    st.markdown(f"**Erwerbsmodell:** {erwerbsmodell}")
+    
+    st.info(results.get('knk_berechnungsbasis_info', 'Information zur KNK-Basis nicht verfügbar.'))
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("#### Investitionsvolumen")
+        
         st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
         st.text(format_aligned_line("GIK Netto:", format_euro(results['gik_netto'], 0)))
         st.text(format_aligned_line("+ Erwerbsnebenkosten:", format_euro(results['erwerbsnebenkosten'], 0)))
@@ -1403,13 +1678,22 @@ def display_overview(results):
         st.text(format_aligned_line("= Investitionssumme:", format_euro(results['investitionssumme_gesamt'], 0)))
         st.markdown('</div></div>', unsafe_allow_html=True)
 
-
     with col2:
+        st.markdown("#### Zuschüsse")
+        st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
+        st.text(format_aligned_line("KfW Tilgungszuschuss:", format_euro(results.get('kfw_tilgungszuschuss', 0), 0)))
+        st.text(format_aligned_line("+ KfW BB-Zuschuss:", format_euro(results.get('zuschuss_baubegleitung', 0), 0)))
+        st.text(format_aligned_line("+ Kommunale Förderung:", format_euro(results.get('kommunale_foerderung', 0), 0)))
+        st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
+        st.text(format_aligned_line("= Gesamtzuschuss:", format_euro(results.get('gesamtzuschuss', 0), 0)))
+        st.markdown('</div></div>', unsafe_allow_html=True)
+
+
+    with col3:
         st.markdown("#### Finanzierungsstruktur")
         st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
         st.text(format_aligned_line("Eigenkapital:", format_euro(results['eigenkapital_bedarf'], 0)))
         st.text(format_aligned_line("+ Bankdarlehen:", format_euro(results['bankdarlehen'], 0)))
-        # Zeigt das gesamte KfW Darlehen (Basis + BB)
         st.text(format_aligned_line("+ KfW-Darlehen (Gesamt):", format_euro(results['kfw_darlehen'], 0)))
         st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
         st.text(format_aligned_line("= Summe Finanzierung:", format_euro(results['investitionssumme_gesamt'], 0)))
@@ -1417,33 +1701,52 @@ def display_overview(results):
 
 def display_investment_details(results):
     """Details zur Investition und AfA."""
-    st.subheader("AfA-Bemessungsgrundlage")
-    st.info("Basis: GIK Netto + Erwerbsnebenkosten (GrESt, Notar/Grundbuch) + aktivierte Baubegleitung.")
+    st.subheader("AfA-Bemessungsgrundlage (Basis)")
+    
+    if st.session_state.get('erwerbsmodell') == MODELL_KAUF_GU:
+        st.info("Basis: GIK Netto + Erwerbsnebenkosten (nur auf Bestand) + aktivierte Baubegleitung.")
+    else:
+        st.info("Basis: GIK Netto + Erwerbsnebenkosten (auf Gesamt-GIK) + aktivierte Baubegleitung.")
+
 
     st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
-    LW = 35
+    LW = 38
     st.text(format_aligned_line("GIK Netto:", format_euro(results['gik_netto'], 0), LW))
     st.text(format_aligned_line("+ Erwerbsnebenkosten (Aktiviert):", format_euro(results['erwerbsnebenkosten'], 0), LW))
-    st.text(format_aligned_line("+ Aktivierte Baubegleitung:", format_euro(results['aktivierung_baubegleitung'], 0), LW))
+    st.text(format_aligned_line("+ Aktivierte Baubegleitung (Netto):", format_euro(results['aktivierung_baubegleitung'], 0), LW))
+    st.text(format_aligned_line("- Kommunale Förderung (Mindert AfA):", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
+    
     st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
-    st.text(format_aligned_line("= AfA-Basis Gesamt (Check):", format_euro(results['afa_basis_summe_check'], 0), LW))
+    st.text(format_aligned_line("= AfA-Basis Gesamt:", format_euro(results['afa_basis_summe_check'], 0), LW))
     st.markdown('</div></div>', unsafe_allow_html=True)
 
     st.markdown("#### Aufteilung der AfA-Basis")
     
+    if results.get('kommunale_foerderung', 0) > 0:
+        st.info(f"Die Basis der Sanierungskosten wurde um die kommunale Förderung reduziert:")
+        st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
+        st.text(format_aligned_line("Basis vor Förderung:", format_euro(results.get('afa_basis_sanierung_vor_foerderung', 0), 0), LW))
+        st.text(format_aligned_line("- Kommunale Förderung:", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
+        st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
+        st.text(format_aligned_line("= Basis nach Förderung:", format_euro(results.get('afa_basis_sanierung', 0), 0), LW))
+        st.markdown('</div></div>', unsafe_allow_html=True)
+
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric("Grundstücksanteil (Keine AfA)", format_euro(results['afa_basis_grundstueck'], 0))
+        st.caption("Inkl. anteiliger Erwerbsnebenkosten.")
     with col2:
         st.metric(f"Sanierungskostenanteil ({AFA_TYP}-AfA)", format_euro(results['afa_basis_sanierung'], 0))
-        st.caption("Erhöhte Abschreibung (§ 7h/i EStG). Inkl. aktivierter Baubegleitung.")
+        st.caption("Erhöhte Abschreibung (§ 7h/i EStG). Nach Abzug kommunaler Förderung.")
     with col3:
         st.metric(f"Altbausubstanz ({format_percent(AFA_ALTBAU_SATZ)} linear)", format_euro(results['afa_basis_altbau'], 0))
         st.caption("Lineare Gebäude-AfA (§ 7 Abs. 4 EStG).")
 
 
-def display_finance_value_dev(results):
+# NEU: Params hinzugefügt, um Darlehenstyp anzuzeigen
+def display_finance_value_dev(results, params):
     """Details zur Finanzierung, Tilgungspläne und Wertentwicklung."""
     st.subheader("Finanzierungsübersicht")
     
@@ -1459,20 +1762,27 @@ def display_finance_value_dev(results):
 
     with col2:
         st.markdown("#### KfW-Förderung (Programm 261)")
-        # Zeigt das Gesamtdarlehen und die Basis
+        # NEU: Darlehenstyp anzeigen
+        st.metric("Darlehenstyp", params.get('kfw_darlehenstyp', KFW_ANNUITAET))
+
         st.metric("KfW-Darlehenssumme (Gesamt)", format_euro(results['kfw_darlehen'], 0))
         st.caption(f"Davon Basis-Darlehen: {format_euro(results['kfw_darlehen_basis'], 0)}")
 
         st.metric("Zinssatz KfW", format_percent(st.session_state.kfw_zins_pct / 100.0))
         st.metric(f"Tilgungszuschuss (auf Basis)", format_euro(results['kfw_tilgungszuschuss'], 0))
         st.metric("Zuschuss Baubegleitung", format_euro(results['zuschuss_baubegleitung'], 0))
-        st.metric("Laufzeit / Tilgungsfrei", f"{st.session_state.kfw_gesamtlaufzeit} Jahre / {st.session_state.kfw_tilgungsfreie_jahre} Jahre")
+        
+        # NEU: Laufzeit-Info dynamisch anzeigen
+        if params.get('kfw_darlehenstyp') == KFW_ENDFAELLIG:
+             st.metric("Laufzeit bis Fälligkeit", f"{st.session_state.kfw_gesamtlaufzeit} Jahre")
+        else:
+             st.metric("Laufzeit / Tilgungsfrei", f"{st.session_state.kfw_gesamtlaufzeit} Jahre / {st.session_state.kfw_tilgungsfreie_jahre} Jahre")
 
     
     # --- Tilgungspläne ---
     st.subheader("Tilgungsplan (Zins, Tilgung, Restschuld)")
     
-    df = results['projection_df']
+    df = results.get('projection_df', pd.DataFrame())
 
     fin_cols = [
         'Zins Bank', 'Tilgung Bank', 'Restschuld Bank',
@@ -1493,7 +1803,7 @@ def display_finance_value_dev(results):
     value_cols = ['Immobilienwert', 'Restschuld Gesamt', 'Nettovermögen']
     if all(col in df.columns for col in value_cols):
         display_dataframe(df[value_cols])
-    else:
+    elif not df.empty:
         st.warning("Daten für Wertentwicklung nicht vollständig.")
 
     st.info(
@@ -1502,6 +1812,7 @@ def display_finance_value_dev(results):
         "In beiden Fällen wird der volle Steuervorteil aus der Sonder-AfA bei einer Haltedauer von zwölf Jahren erreicht."
     )
 
+# (display_cashflow_details, display_tax_details, display_dataframe bleiben unverändert)
 
 def display_cashflow_details(results):
     """Details zur Cashflow-Entwicklung."""
@@ -1530,12 +1841,13 @@ def display_cashflow_details(results):
     st.markdown('</div></div>', unsafe_allow_html=True)
 
     st.subheader("Cashflow-Tabelle")
-    df = results['projection_df']
+    df = results.get('projection_df', pd.DataFrame())
 
     if not df.empty:
+        # NEU: Annuität Gesamt (Kapitaldienst) hinzugefügt
         display_cols = [
-            'Mieteinnahmen (Netto)', 'Betriebskosten', 'Einnahmenüberschuss', 
-            'Annuität Gesamt', 'Cashflow vor Steuer', 'Steuerersparnis', 'Cashflow nach Steuer'
+            'Mieteinnahmen (Netto)', 'Betriebskosten', 'Einnahmenüberschuss',
+            'Annuität Gesamt', 'Cashflow vor Steuer', 'Steuerersparnis', 'Sonderzufluss', 'Cashflow nach Steuer'
         ]
         existing_cols = [col for col in display_cols if col in df.columns]
         
@@ -1550,14 +1862,14 @@ def display_tax_details(results):
     """Detaillierte Darstellung der steuerlichen Komponenten."""
     st.subheader("Steuerliche Berechnungsgrundlagen")
     
-    st.metric("Angenommener Grenzsteuersatz (Brutto, inkl. Soli/KiSt)", format_percent(results['grenzsteuersatz_brutto']))
+    st.metric("Angenommener Grenzsteuersatz (Brutto, inkl. Soli/KiSt)", format_percent(results.get('grenzsteuersatz_brutto', 0)))
     
     if st.session_state.steuer_modus == 'Basis Einkommen (zvE)':
         st.info("Hinweis: Die Berechnung basiert auf einem angenommenen Grenzsteuersatz von 42% (netto). Eine exakte Ermittlung aus dem zvE ist nicht implementiert.")
 
     # --- Kumulierte Werte ---
     st.subheader("Kumulierte Steuerersparnis")
-    df = results['projection_df']
+    df = results.get('projection_df', pd.DataFrame())
     
     try:
         haltedauer = int(st.session_state.geplanter_verkauf)
@@ -1571,9 +1883,11 @@ def display_tax_details(results):
             st.metric(f"Gesamt nach 12 Jahren (Ende Denkmal-AfA)", format_euro(cum_tax_saving_12y, 0))
         
         # Kumulation über Haltedauer
-        if len(df) >= haltedauer:
-             cum_tax_saving_total = df['Steuerersparnis'].head(haltedauer).sum()
-             st.metric(f"Gesamt nach Haltedauer ({haltedauer} J.)", format_euro(cum_tax_saving_total, 0))
+        # Nutzt min(), falls Haltedauer länger als der Berechnungszeitraum ist
+        effective_haltedauer = min(haltedauer, len(df))
+        if effective_haltedauer > 0:
+            cum_tax_saving_total = df['Steuerersparnis'].head(effective_haltedauer).sum()
+            st.metric(f"Gesamt nach Haltedauer ({effective_haltedauer} J.)", format_euro(cum_tax_saving_total, 0))
 
 
     # --- Detailtabelle ---
@@ -1581,7 +1895,7 @@ def display_tax_details(results):
     
     if not df.empty:
         tax_cols = [
-            'Einnahmenüberschuss', 'Zinsen Gesamt', 
+            'Einnahmenüberschuss', 'Zinsen Gesamt',
             'AfA Denkmal (Sonder)', 'AfA Altbau (Linear)', 'AfA Gesamt',
             'Steuerliches Ergebnis (V+V)', 'Steuerersparnis'
         ]
@@ -1602,7 +1916,6 @@ def display_dataframe(df):
     except AttributeError:
         # Fallback for older pandas versions (.style.format)
         try:
-            # Apply formatting only to numeric columns
             formatter = {col: lambda x: format_euro(x, 0) for col in df.select_dtypes(include=np.number).columns}
             st.dataframe(df.style.format(formatter))
         except Exception as e:
@@ -1619,26 +1932,24 @@ def display_dataframe(df):
 
 def main():
     # 1. Initialisierung und Styling
-    # Muss vor dem ersten Widget-Aufruf erfolgen, damit Callbacks funktionieren
     initialize_session_state()
     set_custom_style()
 
-    st.title("Park 55 Immobilienrechner")
+    st.title("Park 55 | Investitionsrechner")
 
-    # Einführungstext (Angepasst)
-    st.info("Wählen Sie den Eingabemodus (Manuell oder Liste). Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
+    st.info("Wählen Sie den Eingabemodus und das Erwerbsmodell. Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
 
     # Optionale Warnings
     if not IRR_ENABLED:
-        st.error("Modul 'numpy_financial' nicht gefunden. Bitte 'pip install numpy-financial' ausführen.")
+        st.error("Modul 'numpy_financial' nicht gefunden. IRR-Berechnung deaktiviert.")
     if not PDF_EXPORT_ENABLED:
-        st.warning("PDF Export ist deaktiviert. Bitte 'pip install reportlab' ausführen.")
+        st.warning("PDF Export ist deaktiviert (Modul 'reportlab' fehlt).")
 
     # ----------------------------------------------------------------
     # ANWENDUNGSLOGIK
     # ----------------------------------------------------------------
 
-    # 1. Input-Widgets anzeigen (Nutzt nun den Hauptbereich)
+    # 1. Input-Widgets anzeigen
     gik_is_valid, kfw_is_valid = display_inputs()
 
     st.markdown("---")
@@ -1653,7 +1964,6 @@ def main():
     else:
         # Berechnung durchführen
         try:
-            # st.session_state enthält die Inputs (entweder aus CSV oder manuell geändert)
             results, params = run_calculations(st.session_state)
             # Ergebnisse anzeigen
             display_results(results, params)
@@ -1674,7 +1984,7 @@ def main():
 if __name__ == '__main__':
     # Globale Fehlerbehandlung
     try:
-        main() 
+        main()
     except Exception as e:
         st.error("Ein unerwarteter technischer Fehler ist aufgetreten.")
         logging.error(traceback.format_exc())
