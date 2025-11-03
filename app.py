@@ -115,6 +115,7 @@ MODELL_KAUF_GU = "Kauf & GU-Vertrag (Getrennte Verträge)"
 DEFAULTS = {
     # Objektdaten (Defaults für Manuelle Eingabe)
     'objekt_name': '',
+    'input_sanierungskosten_vor_zuschuss': 0,
     'input_gik_netto': 0,
     'input_sanierungskostenanteil_pct': 80.0,
     'input_grundstuecksanteil_pct': 8.0,
@@ -139,7 +140,7 @@ DEFAULTS = {
     
     # KfW Parameter inkl. Typ
     'kfw_darlehenstyp': KFW_ANNUITAET,
-    'kfw_zins_pct': 2.92,
+    'kfw_zins_pct': 2.86,
     'kfw_gesamtlaufzeit': 30,
     'kfw_tilgungsfreie_jahre': 4,
 
@@ -411,8 +412,8 @@ def format_percent(value, decimals=2):
         if value == float('inf'): return "∞ %" # Handle infinite RoE
         value = float(value)
         if decimals == 0:
-            return f"{int(round(value*100, 0))}%"
-        return f"{value*100:,.{decimals}f} %".replace('.', ',')
+            return f"{int(round(value*100, 0))} %"
+        return f"{value*100:,.{decimals}f} %".replace(',', 'X').replace('.', ',').replace('X', '.')
      except (ValueError, TypeError):
         return "0,00 %"
 
@@ -633,7 +634,7 @@ def display_inputs():
                 )
 
         st.text_input("Objektname / Beschreibung", key='objekt_name', placeholder="Geben Sie einen Namen oder eine Beschreibung ein...")
-        st.number_input("Gesamtinvestitionskosten (GIK) Netto (€)", min_value=0, step=10000, key='input_gik_netto')
+        st.number_input("Sanierungskosten vor Zuschüssen (€)", min_value=0, step=1000, key='input_sanierungskosten_vor_zuschuss', help="Gesamte Sanierungskosten vor Abzug von Zuschüssen (kommunal, KfW).")
 
         # 1.2 GIK Aufteilung
         st.markdown("**Aufteilung GIK (für AfA & KNK-Basis):**")
@@ -657,7 +658,7 @@ def display_inputs():
         # 1.3 Flächen & Einheiten
         st.markdown("**Flächen & Einheiten:**")
         c_f1, c_f2 = st.columns(2)
-        c_f1.number_input("Wohnfläche (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
+        c_f1.number_input("Wohnfläche saniert (m²)", min_value=0.0, step=1.0, key='input_wohnflaeche')
         c_f2.number_input("Anzahl Wohnungen", min_value=1, step=1, key='input_anzahl_whg', on_change=handle_anzahl_whg_change)
         c_f1.number_input("Kellerfläche (m²)", min_value=0.0, step=1.0, key='input_kellerflaeche')
         c_f2.number_input("Anzahl Stellplätze", min_value=0, step=1, key='input_anzahl_stellplaetze')
@@ -675,7 +676,7 @@ def display_inputs():
         if st.session_state.input_mode == MODE_LIST:
              st.caption(f"Berechnet als {format_percent(KOMMUNALE_FOERDERUNG_FAKTOR)} der Basis (aus Liste). Wird als Zufluss (Jahr 1) gewertet.")
         else:
-             st.caption("Wird als Zufluss (Jahr 1) gewertet und mindert die AfA-Basis Sanierung.")
+             st.caption("Wird als Cashflow-Zufluss (Jahr 1) gewertet und mindert die AfA-Basis Sanierung.")
 
 
         # 2.1 KfW-Förderung
@@ -722,7 +723,7 @@ def display_inputs():
         c_d1.number_input("Tilgung Bank (%)", min_value=0.0, step=0.01, format="%.2f", key='bank_tilgung_pct')
 
         # NEU: KfW Darlehenstyp und dynamische Inputs
-        c_d2.markdown("**KfW-Darlehen:**")
+        c_d2.markdown("**KfW-Darlehen (261):**")
 
         # NEU: Auswahl Darlehenstyp
         c_d2.radio("Darlehenstyp", KFW_DARLEHENSTYPEN, key='kfw_darlehenstyp', horizontal=True)
@@ -763,14 +764,15 @@ def display_inputs():
             c_s1, c_s2 = st.columns(2)
             c_s1.radio("Tabelle", ['Grund', 'Splitting'], key='steuertabelle')
 
-            try:
-                # Stellt sicher, dass das ausgewählte Steuerjahr in den Optionen vorhanden ist
-                default_index = STEUERJAHRE_OPTIONEN.index(st.session_state.steuerjahr)
-            except ValueError:
-                default_index = 0
-                st.session_state.steuerjahr = STEUERJAHRE_OPTIONEN[0]
+            # Verwende versteckten Widget-Key um Session State Konflikt zu vermeiden
+            current_jahr = st.session_state.get('steuerjahr', STEUERJAHRE_OPTIONEN[0])
+            if current_jahr not in STEUERJAHRE_OPTIONEN:
+                current_jahr = STEUERJAHRE_OPTIONEN[0]
+            default_index = STEUERJAHRE_OPTIONEN.index(current_jahr)
 
-            c_s2.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, index=default_index, key='steuerjahr')
+            selected_jahr = c_s2.selectbox("Steuerjahr", STEUERJAHRE_OPTIONEN, index=default_index, key='_steuerjahr_widget')
+            # Speichere in separater Variable (nach Widget-Erstellung)
+            st.session_state.steuerjahr = selected_jahr
         else:
             st.number_input("Grenzsteuersatz (%)", min_value=0.0, max_value=45.0, step=1.0, format="%.0f", key='steuersatz_manuell_pct')
 
@@ -868,129 +870,73 @@ def convert_inputs_to_params(inputs_pct):
 
 def calculate_investment(params, results):
     """Berechnet GIK, Nebenkosten, AfA-Grundlagen und Finanzierungsstruktur."""
-
-    # 1.0 Kommunale Fördermittel einlesen (Dies ist bereits der Zuschussbetrag)
     kommunale_foerderung = float(params.get('input_kommunale_foerderung', 0))
     results['kommunale_foerderung'] = kommunale_foerderung
-
-    # 1.1 GIK und Nebenkosten
-    gik_netto = float(params['input_gik_netto'])
-
-    # Logik für Kauf & GU (einziges Modell)
-    sanierungskostenanteil = params.get('input_sanierungskostenanteil', 0.0)
-    # KNK wird nur auf den Bestand (GIK exklusive Sanierungskosten) berechnet
-    bemessungsgrundlage_knk = gik_netto * (1.0 - sanierungskostenanteil)
-    results['knk_berechnungsbasis_info'] = f"Basis KNK (Kauf & GU): {format_euro(bemessungsgrundlage_knk, 0)} (GIK exkl. Sanierung)"
-
-    erwerbsnebenkosten = bemessungsgrundlage_knk * ERWERBSNEBENKOSTEN_SATZ
-    gik_brutto = gik_netto + erwerbsnebenkosten
-
-    results['gik_netto'] = gik_netto
+    wohnflaeche_saniert = float(params.get('input_wohnflaeche', 0))
+    wohnflaeche_bestand = wohnflaeche_saniert / 1.4 if wohnflaeche_saniert > 0 else 0
+    results['wohnflaeche_bestand'] = wohnflaeche_bestand
+    results['wohnflaeche_saniert'] = wohnflaeche_saniert
+    kaufpreis_bestand = wohnflaeche_bestand * 650
+    results['kaufpreis_bestand'] = kaufpreis_bestand
+    erwerbsnebenkosten = kaufpreis_bestand * 0.065
     results['erwerbsnebenkosten'] = erwerbsnebenkosten
-    results['gik_brutto'] = gik_brutto
-
-    # 1.2 Baubegleitung (Kosten und Zuschuss)
-    kosten_bb_pro_we = float(params['kosten_baubegleitung_pro_we'])
-    anzahl_whg = int(params['input_anzahl_whg'])
-
-    kosten_baubegleitung_gesamt = kosten_bb_pro_we * anzahl_whg
-    # Zuschuss BB (50% der Kosten)
-    zuschuss_baubegleitung = kosten_baubegleitung_gesamt * KFW_ZUSCHUSS_BB_SATZ
-    # Aktivierter Teil der BB (Kosten - Zuschuss)
-    aktivierung_baubegleitung = kosten_baubegleitung_gesamt - zuschuss_baubegleitung
-
+    sanierungskosten_vor_zuschuss = float(params.get('input_sanierungskosten_vor_zuschuss', 0))
+    results['sanierungskosten_vor_zuschuss'] = sanierungskosten_vor_zuschuss
+    anzahl_whg = int(params.get('input_anzahl_whg', 1))
+    kosten_bb_pro_we = float(params.get('kosten_baubegleitung_pro_we', KOSTEN_BB_PRO_WE_DEFAULT))
+    kosten_baubegleitung_gesamt = anzahl_whg * kosten_bb_pro_we
     results['kosten_baubegleitung_gesamt'] = kosten_baubegleitung_gesamt
-    results['zuschuss_baubegleitung'] = zuschuss_baubegleitung
+    aktivierung_baubegleitung = kosten_baubegleitung_gesamt * KFW_ZUSCHUSS_BB_SATZ
     results['aktivierung_baubegleitung'] = aktivierung_baubegleitung
-
-    # Investitionssumme Gesamt (inkl. aller Kosten der Baubegleitung)
-    investitionssumme_gesamt = gik_brutto + kosten_baubegleitung_gesamt
-    results['investitionssumme_gesamt'] = investitionssumme_gesamt
-
-    # 1.3 AfA-Bemessungsgrundlagen
-    # ... (Logik bleibt unverändert) ...
-    wert_grundstueck = gik_netto * params['input_grundstuecksanteil']
-    wert_sanierung = gik_netto * params['input_sanierungskostenanteil']
-    wert_altbau = gik_netto * params['input_altbauanteil']
-
-    # Logik für AfA-Basis Aufteilung (Kauf & GU)
-
-    # KNK müssen auf den Bestand (Grundstück + Altbau) aufgeteilt werden
-    wert_bestand_summe = wert_grundstueck + wert_altbau
-    if wert_bestand_summe > 0:
-        anteil_grundstueck_am_bestand = wert_grundstueck / wert_bestand_summe
-        anteil_altbau_am_bestand = wert_altbau / wert_bestand_summe
-    else:
-        anteil_grundstueck_am_bestand = 0
-        anteil_altbau_am_bestand = 0
-
-    knk_auf_grundstueck = erwerbsnebenkosten * anteil_grundstueck_am_bestand
+    zuschuss_baubegleitung = kosten_baubegleitung_gesamt * KFW_ZUSCHUSS_BB_SATZ
+    results['zuschuss_baubegleitung'] = zuschuss_baubegleitung
+    gik_netto = kaufpreis_bestand + sanierungskosten_vor_zuschuss + kosten_baubegleitung_gesamt
+    results['gik_netto'] = gik_netto
+    gik_brutto = gik_netto + erwerbsnebenkosten
+    results['gik_brutto'] = gik_brutto
+    results['investitionsvolumen'] = gik_brutto
+    results['investitionssumme_gesamt'] = gik_brutto
+    wert_sanierung = sanierungskosten_vor_zuschuss
+    wert_grundstueck = kaufpreis_bestand * (params.get('input_grundstuecksanteil_pct', 8.0) / 100.0)
+    wert_altbau = kaufpreis_bestand - wert_grundstueck
+    results['wert_sanierung'] = wert_sanierung
+    results['wert_grundstueck'] = wert_grundstueck
+    results['wert_altbau'] = wert_altbau
+    results['afa_basis_grundstueck'] = wert_grundstueck
+    anteil_altbau_am_bestand = wert_altbau / kaufpreis_bestand if kaufpreis_bestand > 0 else 0
     knk_auf_altbau = erwerbsnebenkosten * anteil_altbau_am_bestand
-
-    afa_basis_grundstueck = wert_grundstueck + knk_auf_grundstueck
     afa_basis_altbau = wert_altbau + knk_auf_altbau
-    # AfA Basis Sanierung = Wert Sanierung + Aktivierte Baubegleitung
-    afa_basis_sanierung_vor_foerderung = wert_sanierung + aktivierung_baubegleitung
-
-
-    # Kommunale Förderung von der AfA-Basis Sanierung abziehen
-    afa_basis_sanierung = max(0, afa_basis_sanierung_vor_foerderung - kommunale_foerderung)
-
-    if afa_basis_sanierung_vor_foerderung < kommunale_foerderung and afa_basis_sanierung_vor_foerderung > 0:
-         results['afa_hinweis'] = f"Hinweis: Die kommunale Förderung übersteigt die Basis der Sanierungskosten. Die AfA-Basis Sanierung wurde auf 0 € gesetzt."
-
-
-    results['afa_basis_sanierung_vor_foerderung'] = afa_basis_sanierung_vor_foerderung
-    results['afa_basis_grundstueck'] = afa_basis_grundstueck
-    results['afa_basis_sanierung'] = afa_basis_sanierung
     results['afa_basis_altbau'] = afa_basis_altbau
-
-    results['afa_basis_summe_check'] = afa_basis_grundstueck + afa_basis_sanierung + afa_basis_altbau
-
-    # 1.4 Finanzierung
-    # ... (Logik bleibt unverändert) ...
-    if investitionssumme_gesamt == 0:
-        eigenkapital_bedarf = 0
-        fremdkapital_bedarf = 0
-    else:
-        eigenkapital_bedarf = investitionssumme_gesamt * params['ek_quote']
-        fremdkapital_bedarf = investitionssumme_gesamt - eigenkapital_bedarf
-
-    # KfW Logik
-    kfw_darlehen_basis = float(params['input_kfw_darlehen_261_basis'])
-    # Gesamtes KfW Darlehen = Basis + Kosten Baubegleitung
-    kfw_darlehen_gesamt = kfw_darlehen_basis + kosten_baubegleitung_gesamt
-
-    # Validierung gegen Fremdkapitalbedarf
-    if kfw_darlehen_gesamt > fremdkapital_bedarf and fremdkapital_bedarf > 0:
-        reduktion = kfw_darlehen_gesamt - fremdkapital_bedarf
-        kfw_darlehen_gesamt = fremdkapital_bedarf
-
-        # Reduziere zuerst das Basisdarlehen, wenn möglich
-        if kfw_darlehen_basis >= reduktion:
-            kfw_darlehen_basis -= reduktion
-        else:
-            # Wenn Reduktion größer als Basisdarlehen ist
-            kfw_darlehen_basis = 0
-
-        results['finanzierung_hinweis'] = "Hinweis: Das berechnete KfW-Darlehen (Basis+BB) war höher als der Fremdkapitalbedarf. Es wurde für die Berechnung auf den maximal benötigten Betrag reduziert."
-
-    # KfW Tilgungszuschuss (40% auf das Basisdarlehen)
-    kfw_tilgungszuschuss = kfw_darlehen_basis * KFW_ZUSCHUSS_261_SATZ
-    bankdarlehen = fremdkapital_bedarf - kfw_darlehen_gesamt
-
-    results['eigenkapital_bedarf'] = eigenkapital_bedarf
-    results['fremdkapital_bedarf'] = fremdkapital_bedarf
-    results['kfw_darlehen'] = kfw_darlehen_gesamt
-    results['kfw_darlehen_basis'] = kfw_darlehen_basis
+    afa_basis_sanierung_vor_foerderung = wert_sanierung + aktivierung_baubegleitung
+    results['afa_basis_sanierung_vor_foerderung'] = afa_basis_sanierung_vor_foerderung
+    kfw_foerderfaehig = float(params.get('input_kfw_foerderfaehige_kosten', 0))
+    if kfw_foerderfaehig == 0:
+        kfw_foerderfaehig = float(params.get('input_kfw_darlehen_261_basis', 0))
+    kfw_tilgungszuschuss = kfw_foerderfaehig * KFW_ZUSCHUSS_261_SATZ
     results['kfw_tilgungszuschuss'] = kfw_tilgungszuschuss
-    results['bankdarlehen'] = bankdarlehen
-
-    # Gesamtzuschuss (KfW Tilgungszuschuss + KfW BB-Zuschuss + Kommunale Förderung)
+    afa_basis_sanierung = max(0, afa_basis_sanierung_vor_foerderung - kommunale_foerderung - kfw_tilgungszuschuss)
+    results['afa_basis_sanierung'] = afa_basis_sanierung
+    if afa_basis_sanierung_vor_foerderung < (kommunale_foerderung + kfw_tilgungszuschuss) and afa_basis_sanierung_vor_foerderung > 0:
+        results['afa_hinweis'] = "Hinweis: Die Zuschüsse übersteigen die Basis der Sanierungskosten."
+    else:
+        results['afa_hinweis'] = ""
+    eigenkapital = gik_brutto * params['ek_quote']
+    fremdkapital = gik_brutto - eigenkapital
+    results['eigenkapital'] = eigenkapital
+    results['fremdkapital_gesamt'] = fremdkapital
+    results['eigenkapital_bedarf'] = eigenkapital
+    results['fremdkapital_bedarf'] = fremdkapital
+    kfw_darlehen_261 = float(params.get('input_kfw_darlehen_261_basis', 0))
+    results['kfw_zuschuss_bb'] = kosten_baubegleitung_gesamt * KFW_ZUSCHUSS_BB_SATZ
+    results['kfw_darlehen_basis'] = kfw_darlehen_261
+    results['kfw_darlehen'] = kfw_darlehen_261 + kosten_baubegleitung_gesamt
+    results['kfw_darlehen_summe'] = kfw_darlehen_261
+    results['bankdarlehen'] = max(0, fremdkapital - results['kfw_darlehen'])
     results['gesamtzuschuss'] = kfw_tilgungszuschuss + zuschuss_baubegleitung + kommunale_foerderung
-    results['effektives_eigenkapital'] = max(0, eigenkapital_bedarf - results['gesamtzuschuss'])
-
+    results['effektives_eigenkapital'] = max(0, eigenkapital - results['gesamtzuschuss'])
+    results['kfw_foerderfaehige_kosten_berechnet'] = kfw_darlehen_261 if params.get('input_kfw_foerderfaehige_kosten', 0) == 0 else kfw_foerderfaehig
     return results
+
 
 def calculate_revenues_costs(params, results):
     # ... (Diese Funktion bleibt unverändert) ...
@@ -1765,7 +1711,7 @@ def display_overview(results):
     st.subheader("Zusammenfassung der Investition")
 
     erwerbsmodell = st.session_state.get('erwerbsmodell', MODELL_KAUF_GU) # Fallback geändert
-    st.markdown(f"**Erwerbsmodell:** {erwerbsmodell}")
+    # Erwerbsmodell-Zeile entfernt
     
     st.info(results.get('knk_berechnungsbasis_info', 'Information zur KNK-Basis nicht verfügbar.'))
 
@@ -1805,54 +1751,50 @@ def display_overview(results):
 
 def display_investment_details(results):
     """Details zur Investition und AfA."""
-    st.subheader("AfA-Bemessungsgrundlage (Basis)")
-    
-    # if st.session_state.get('erwerbsmodell') == MODELL_KAUF_GU:
-    #     st.info("Basis: GIK Netto + Erwerbsnebenkosten (nur auf Bestand) + aktivierte Baubegleitung.")
-    # else:
-    #     st.info("Basis: GIK Netto + Erwerbsnebenkosten (auf Gesamt-GIK) + aktivierte Baubegleitung.")
-    
-    # Vereinfacht, da Bauträger entfernt wurde
-    st.info("Basis (Kauf & GU): GIK Netto + Erwerbsnebenkosten (nur auf Bestand) + aktivierte Baubegleitung.")
-
-
+    st.subheader("Investitionsvolumen")
     st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
-    LW = 38
-    st.text(format_aligned_line("GIK Netto:", format_euro(results['gik_netto'], 0), LW))
-    st.text(format_aligned_line("+ Erwerbsnebenkosten (Aktiviert):", format_euro(results['erwerbsnebenkosten'], 0), LW))
-    st.text(format_aligned_line("+ Aktivierte Baubegleitung (Netto):", format_euro(results['aktivierung_baubegleitung'], 0), LW))
-    st.text(format_aligned_line("- Kommunale Förderung (Mindert AfA):", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
-    
-    st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
-    st.text(format_aligned_line("= AfA-Basis Gesamt:", format_euro(results['afa_basis_summe_check'], 0), LW))
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    LW = 40
+    st.text(format_aligned_line("Kaufpreis Bestandsimmobilie:", format_euro(results.get('kaufpreis_bestand', 0), 0), LW))
+    st.text(format_aligned_line("+ Sanierungskosten (vor Zuschüssen):", format_euro(results.get('sanierungskosten_vor_zuschuss', 0), 0), LW))
+    st.text(format_aligned_line("+ Kosten Baubegleitung KfW:", format_euro(results.get('kosten_baubegleitung_gesamt', 0), 0), LW))
+    st.markdown("---")
+    st.text(format_aligned_line("= GIK Netto:", format_euro(results.get('gik_netto', 0), 0), LW))
+    st.markdown("---")
+    st.text(format_aligned_line("+ Erwerbsnebenkosten (6,5%):", format_euro(results.get('erwerbsnebenkosten', 0), 0), LW))
+    st.markdown("---")
+    st.text(format_aligned_line("= GIK Brutto / Investitionsvolumen:", format_euro(results.get('gik_brutto', 0), 0), LW))
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("---")
+    st.subheader("AfA-Bemessungsgrundlage (Basis)")
+    st.info("Basis (Kauf & GU): Sanierungskosten + Aktivierte Baubegleitung - Zuschüsse (kommunal + KfW-Tilgungszuschuss).")
+    st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
+    st.text(format_aligned_line("Sanierungskosten:", format_euro(results.get('wert_sanierung', 0), 0), LW))
+    st.text(format_aligned_line("+ Aktivierte Baubegleitung (50%):", format_euro(results.get('aktivierung_baubegleitung', 0), 0), LW))
+    st.text(format_aligned_line("= AfA-Basis vor Zuschüssen:", format_euro(results.get('afa_basis_sanierung_vor_foerderung', 0), 0), LW))
+    st.text(format_aligned_line("- Kommunale Förderung:", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
+    st.text(format_aligned_line("- KfW-Tilgungszuschuss (40%):", format_euro(results.get('kfw_tilgungszuschuss', 0), 0), LW))
+    st.markdown("---")
+    st.text(format_aligned_line("= AfA-Basis Sanierung (Denkmal):", format_euro(results.get('afa_basis_sanierung', 0), 0), LW))
+    st.text(format_aligned_line("AfA-Basis Altbau (mit ENK):", format_euro(results.get('afa_basis_altbau', 0), 0), LW))
+    st.text(format_aligned_line("AfA-Basis Grundstück (n.a.):", format_euro(results.get('afa_basis_grundstueck', 0), 0), LW))
+    st.markdown('</div>', unsafe_allow_html=True)
+    if results.get('afa_hinweis'):
+        st.warning(results['afa_hinweis'])
+    st.markdown("#### Jährliche Abschreibung (AfA)")
+    afa_data = {'Kategorie': ['Denkmal (J1-8)', 'Denkmal (J9-12)', 'Altbau'], 'AfA-Satz': ['9%', '7%', '2%'], 'Basis': [format_euro(results.get('afa_basis_sanierung', 0), 0), format_euro(results.get('afa_basis_sanierung', 0), 0), format_euro(results.get('afa_basis_altbau', 0), 0)], 'Jährlich': [format_euro(results.get('afa_denkmal_j1_8', 0), 0), format_euro(results.get('afa_denkmal_j9_12', 0), 0), format_euro(results.get('afa_altbau', 0), 0)]}
+    df_afa = pd.DataFrame(afa_data)
+    st.dataframe(df_afa, width='stretch', hide_index=True)
+    st.markdown("#### Zuschüsse")
+    st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
+    st.text(format_aligned_line("Kommunale Förderung:", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
+    st.text(format_aligned_line("KfW-Tilgungszuschuss (40%):", format_euro(results.get('kfw_tilgungszuschuss', 0), 0), LW))
+    st.text(format_aligned_line("KfW BB-Zuschuss (50%):", format_euro(results.get('kfw_zuschuss_bb', 0), 0), LW))
+    total_zuschuss = results.get('kommunale_foerderung', 0) + results.get('kfw_tilgungszuschuss', 0) + results.get('kfw_zuschuss_bb', 0)
+    st.markdown("---")
+    st.text(format_aligned_line("= Gesamt Zuschüsse:", format_euro(total_zuschuss, 0), LW))
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("#### Aufteilung der AfA-Basis")
-    
-    if results.get('kommunale_foerderung', 0) > 0:
-        st.info(f"Die Basis der Sanierungskosten wurde um die kommunale Förderung reduziert:")
-        st.markdown('<div class="calculation-breakdown">', unsafe_allow_html=True)
-        st.text(format_aligned_line("Basis vor Förderung:", format_euro(results.get('afa_basis_sanierung_vor_foerderung', 0), 0), LW))
-        st.text(format_aligned_line("- Kommunale Förderung:", format_euro(results.get('kommunale_foerderung', 0), 0), LW))
-        st.markdown('<div class="breakdown-intermediate">', unsafe_allow_html=True)
-        st.text(format_aligned_line("= Basis nach Förderung:", format_euro(results.get('afa_basis_sanierung', 0), 0), LW))
-        st.markdown('</div></div>', unsafe_allow_html=True)
 
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Grundstücksanteil (Keine AfA)", format_euro(results['afa_basis_grundstueck'], 0))
-        st.caption("Inkl. anteiliger Erwerbsnebenkosten.")
-    with col2:
-        st.metric(f"Sanierungskostenanteil ({AFA_TYP}-AfA)", format_euro(results['afa_basis_sanierung'], 0))
-        st.caption("Erhöhte Abschreibung (§ 7h/i EStG). Nach Abzug kommunaler Förderung.")
-    with col3:
-        st.metric(f"Altbausubstanz ({format_percent(AFA_ALTBAU_SATZ)} linear)", format_euro(results['afa_basis_altbau'], 0))
-        st.caption("Lineare Gebäude-AfA (§ 7 Abs. 4 EStG).")
-
-
-# NEU: Params hinzugefügt, um Darlehenstyp anzuzeigen
 def display_finance_value_dev(results, params):
     """Details zur Finanzierung, Tilgungspläne und Wertentwicklung."""
     st.subheader("Finanzierungsübersicht")
@@ -2042,7 +1984,7 @@ def main():
 
     st.title("Park 55 | Investitionsrechner")
 
-    st.info("Wählen Sie den Eingabemodus. Das Erwerbsmodell ist fix auf 'Kauf & GU-Vertrag' eingestellt. Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
+    st.info("Die Berechnung wird automatisch bei jeder Änderung der Eingabeparameter durchgeführt.")
 
     # Optionale Warnings
     if not IRR_ENABLED:
