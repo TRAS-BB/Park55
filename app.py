@@ -202,7 +202,7 @@ def robust_parse_float(value):
 def load_object_data():
     """Lädt und bereinigt die Objektdaten aus der CSV-Datei."""
 
-    file_path = "2025-10-25_Park 55_Rohdaten_Denkmalrechner App_final.csv"
+    file_path = "2025-10-25_Park-55_Rohdaten_Denkmalrechner-App_final.csv"
     logging.info(f"Versuche, Objektdaten von {file_path} zu laden...")
     try:
         # Lese alles als String, um Parsing-Fehler durch gemischte Formate zu vermeiden.
