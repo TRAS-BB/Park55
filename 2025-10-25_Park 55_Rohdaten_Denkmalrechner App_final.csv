@@ -19,15 +19,15 @@ SZ017;Brunhildenstrasse;3;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;4
 SZ018;Brunhildenstrasse;4;Salzgitter;1939;Denkmal;ja;130936;282.02;5;0;0;0.4;0;63150;teilvermietet;282.02;64.84;0;201.44;4;MFH;842;0;0;0;0;0;0
 SZ019;Brunhildenstrasse;5;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;leerstehend;231.62;53.27;0;165.44;4;MFH;773;0;0;0;0;0;0
 SZ021;Brunhildenstrasse;7;Salzgitter;1939;Denkmal;ja;108186;233.02;5;0;0;0.4;0;57975;teilvermietet;233.02;53.59;0;166.44;3;MFH;773;0;0;0;0;0;0
-SZ023;Brunhildenstrasse;9;Salzgitter;1939;Denkmal;ja;107536;231.62;4;0;0;0.4;0;57975;leerstehend;231.62;53.27;0;165.44;4;MFH;773;0;0;0;0;0;0
+SZ023;Brunhildenstrasse;9;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;leerstehend;231.62;53.27;0;165.44;4;MFH;773;0;0;0;0;0;0
 SZ024;Brunhildenstrasse;10;Salzgitter;1939;Denkmal;ja;190892;411.15;8;0;0;0.4;0;63150;teilvermietet;411.15;94.56;0;293.68;7;MFH;842;0;0;0;0;0;0
-SZ025;Brunhildenstrasse;11;Salzgitter;1939;Denkmal;ja;107536;231.62;4;0;0;0.4;0;57975;leerstehend;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
+SZ025;Brunhildenstrasse;11;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;leerstehend;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
 SZ026;Brunhildenstrasse;12;Salzgitter;1939;Denkmal;ja;190892;411.15;8;0;0;0.4;0;63150;teilvermietet;411.15;94.56;0;293.68;6;MFH;842;0;0;0;0;0;0
-SZ027;Brunhildenstrasse;13;Salzgitter;1939;Denkmal;ja;107536;231.62;4;0;0;0.4;0;57975;teilvermietet;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
+SZ027;Brunhildenstrasse;13;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;teilvermietet;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
 SZ028;Brunhildenstrasse;14;Salzgitter;1939;Denkmal;ja;190892;411.15;8;0;0;0.4;0;63150;teilvermietet;411.15;94.56;0;293.68;6;MFH;842;0;0;0;0;0;0
-SZ029;Brunhildenstrasse;15;Salzgitter;1939;Denkmal;ja;107536;231.62;4;0;0;0.4;0;57975;teilvermietet;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
+SZ029;Brunhildenstrasse;15;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;teilvermietet;231.62;53.27;0;165.44;3;MFH;773;0;0;0;0;0;0
 SZ030;Brunhildenstrasse;16;Salzgitter;1939;Denkmal;ja;190892;411.15;8;0;0;0.4;0;63150;leerstehend;411.15;94.56;0;293.68;6;MFH;842;0;0;0;0;0;0
-SZ031;Brunhildenstrasse;17;Salzgitter;1939;Denkmal;ja;107536;231.62;4;0;0;0.4;0;57975;vollvermietet;231.62;53.27;0;165.44;2;MFH;773;0;0;0;0;0;0
+SZ031;Brunhildenstrasse;17;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;57975;vollvermietet;231.62;53.27;0;165.44;2;MFH;773;0;0;0;0;0;0
 SZ040;Brunhildenstrasse;26;Salzgitter;1939;Denkmal;nein;65949;142.04;3;0;0;0.4;0;63150;vollvermietet;142.04;32.67;1;101.46;2;Doppel-MFH;842;0;0;0;0;0;0
 SZ041;Brunhildenstrasse;27;Salzgitter;1939;Denkmal;nein;131586;283.42;5;0;0;0.4;0;57975;vollvermietet;283.42;65.19;0;202.44;4;MFH;773;0;0;0;0;0;0
 SZ042;Brunhildenstrasse;28;Salzgitter;1939;Denkmal;nein;130936;282.02;5;0;0;0.4;0;63150;leerstehend;282.02;64.86;0;201.44;4;Doppel-MFH;842;0;0;0;0;0;0
@@ -155,4 +155,5 @@ SZ163;Weserstrasse;30a;Salzgitter;1939;Denkmal;ja;19500;42.00;1;0;0;0.4;0;525;vo
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
+
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
