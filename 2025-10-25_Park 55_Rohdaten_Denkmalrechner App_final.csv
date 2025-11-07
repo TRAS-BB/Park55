@@ -31,13 +31,13 @@ SZ031;Brunhildenstrasse;17;Salzgitter;1939;Denkmal;ja;107536;231.62;5;0;0;0.4;0;
 SZ040;Brunhildenstrasse;26;Salzgitter;1939;Denkmal;nein;65949;142.04;3;0;0;0.4;0;63150;vollvermietet;142.04;32.67;1;101.46;2;Doppel-MFH;842;0;0;0;0;0;0
 SZ041;Brunhildenstrasse;27;Salzgitter;1939;Denkmal;nein;131586;283.42;5;0;0;0.4;0;57975;vollvermietet;283.42;65.19;0;202.44;4;MFH;773;0;0;0;0;0;0
 SZ042;Brunhildenstrasse;28;Salzgitter;1939;Denkmal;nein;130936;282.02;5;0;0;0.4;0;63150;leerstehend;282.02;64.86;0;201.44;4;Doppel-MFH;842;0;0;0;0;0;0
-SZ043;Elbestrasse;2;Salzgitter;1939;Denkmal;nein;132340;285.04;5;0;0;0.4;0;57450;teilvermietet;285.04;65.56;0;203.6;4;Kettenhaus;766;0;0;0;0;0;0
-SZ044;Elbestrasse;4;Salzgitter;1939;Denkmal;nein;132340;285.04;5;0;0;0.4;0;57525;vollvermietet;285.04;65.56;0;203.6;4;Kettenhaus;767;0;0;0;0;0;0
-SZ045;Elbestrasse;6;Salzgitter;1939;Denkmal;nein;132340;285.04;5;0;0;0.4;0;57525;leerstehend;285.04;65.56;0;203.6;3;Kettenhaus;767;0;0;0;0;0;0
-SZ046;Elbestrasse;8;Salzgitter;1939;Denkmal;nein;132340;285.04;5;0;0;0.4;0;57525;leerstehend;285.04;65.56;0;203.6;4;Kettenhaus;767;0;0;0;0;0;0
-SZ047;Elbestrasse;10;Salzgitter;1939;Denkmal;nein;132340;285.04;5;0;0;0.4;0;57525;vollvermietet;285.04;65.56;0;203.6;3;Kettenhaus;767;0;0;0;0;0;0
+SZ043;Elbestrasse;2;Salzgitter;1939;Denkmal;nein;132340;285.04;6;0;0;0.4;0;57450;teilvermietet;285.04;65.56;0;203.6;4;Kettenhaus;766;0;0;0;0;0;0
+SZ044;Elbestrasse;4;Salzgitter;1939;Denkmal;nein;132340;285.04;6;0;0;0.4;0;57525;vollvermietet;285.04;65.56;0;203.6;4;Kettenhaus;767;0;0;0;0;0;0
+SZ045;Elbestrasse;6;Salzgitter;1939;Denkmal;nein;132340;285.04;6;0;0;0.4;0;57525;leerstehend;285.04;65.56;0;203.6;3;Kettenhaus;767;0;0;0;0;0;0
+SZ046;Elbestrasse;8;Salzgitter;1939;Denkmal;nein;132340;285.04;6;0;0;0.4;0;57525;leerstehend;285.04;65.56;0;203.6;4;Kettenhaus;767;0;0;0;0;0;0
+SZ047;Elbestrasse;10;Salzgitter;1939;Denkmal;nein;132340;285.04;6;0;0;0.4;0;57525;vollvermietet;285.04;65.56;0;203.6;3;Kettenhaus;767;0;0;0;0;0;0
 SZ048;Elbestrasse;11;Salzgitter;1939;Denkmal;nein;130936;282.02;5;0;0;0.4;0;55725;leerstehend;282.02;64.86;0;201.44;4;Doppel-MFH;743;0;0;0;0;0;0
-SZ049;Elbestrasse;13;Salzgitter;1939;Denkmal;nein;130943;282.03;5;0;0;0.4;0;55725;leerstehend;282.03;64.87;0;201.45;4;Doppel-MFH;743;0;0;0;0;0;0
+SZ049;Elbestrasse;13;Salzgitter;1939;Denkmal;nein;130943;282.03;6;0;0;0.4;0;55725;leerstehend;282.03;64.87;0;201.45;4;Doppel-MFH;743;0;0;0;0;0;0
 SZ050;Elbestrasse;15;Salzgitter;1939;Denkmal;ja;130949;282.04;5;0;0;0.4;0;55725;leerstehend;282.04;64.87;0;201.46;4;Doppel-MFH;743;0;0;0;0;0;0
 SZ051;Elbestrasse;17;Salzgitter;1939;Denkmal;ja;130761;281.64;5;0;0;0.4;0;55725;leerstehend;281.64;64.77;0;201.17;4;Doppel-MFH;743;0;0;0;0;0;0
 SZ052;Elbestrasse;19;Salzgitter;1939;Denkmal;ja;160992;346.75;8;0;0;0.4;0;51825;teilvermietet;346.75;79.75;0;247.68;6;MFH;691;0;0;0;0;0;0
@@ -157,3 +157,4 @@ SZ163;Weserstrasse;30a;Salzgitter;1939;Denkmal;ja;19500;42.00;1;0;0;0.4;0;525;vo
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
 
 ;;;;;;;;;;;;; ;;;;;;;;;;;;;;;
+
