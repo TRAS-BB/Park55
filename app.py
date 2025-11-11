@@ -202,7 +202,7 @@ def robust_parse_float(value):
 def load_object_data():
     """Lädt und bereinigt die Objektdaten aus der CSV-Datei."""
 
-    file_path = "2025-10-25_Park-55_Rohdaten_Denkmalrechner-App_final.csv"
+    file_path = "2025-10-25_Park 55_Rohdaten_Denkmalrechner App_final.csv"
     logging.info(f"Versuche, Objektdaten von {file_path} zu laden...")
     try:
         # Lese alles als String, um Parsing-Fehler durch gemischte Formate zu vermeiden.
@@ -914,7 +914,10 @@ def calculate_investment(params, results):
         kfw_foerderfaehig = float(params.get('input_kfw_darlehen_261_basis', 0))
     kfw_tilgungszuschuss = kfw_foerderfaehig * KFW_ZUSCHUSS_261_SATZ
     results['kfw_tilgungszuschuss'] = kfw_tilgungszuschuss
-    afa_basis_sanierung = max(0, afa_basis_sanierung_vor_foerderung - kommunale_foerderung - kfw_tilgungszuschuss)
+    # Kommunale Förderung aufteilen (40% Zuschuss / 60% Eigenanteil)
+    komm_zuschuss = kommunale_foerderung  # Legacy: Annahme 40% des Gesamtwerts
+    komm_eigenanteil = kommunale_foerderung * 1.5  # 60% entsprechen 150% vom Zuschuss
+    afa_basis_sanierung = max(0, afa_basis_sanierung_vor_foerderung - komm_zuschuss - kfw_tilgungszuschuss + komm_eigenanteil)
     results['afa_basis_sanierung'] = afa_basis_sanierung
     if afa_basis_sanierung_vor_foerderung < (kommunale_foerderung + kfw_tilgungszuschuss) and afa_basis_sanierung_vor_foerderung > 0:
         results['afa_hinweis'] = "Hinweis: Die Zuschüsse übersteigen die Basis der Sanierungskosten."
